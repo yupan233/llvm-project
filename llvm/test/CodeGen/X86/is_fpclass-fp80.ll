@@ -265,23 +265,24 @@ entry:
 define i1 @is_posinf_f80(x86_fp80 %x) nounwind {
 ; X86-LABEL: is_posinf_f80:
 ; X86:       # %bb.0: # %entry
-; X86-NEXT:    movzwl {{[0-9]+}}(%esp), %eax
-; X86-NEXT:    movl $-2147483648, %ecx # imm = 0x80000000
-; X86-NEXT:    xorl {{[0-9]+}}(%esp), %ecx
-; X86-NEXT:    xorl $32767, %eax # imm = 0x7FFF
-; X86-NEXT:    orl {{[0-9]+}}(%esp), %eax
-; X86-NEXT:    orl %ecx, %eax
-; X86-NEXT:    sete %al
+; X86-NEXT:    fldt {{[0-9]+}}(%esp)
+; X86-NEXT:    flds {{\.?LCPI[0-9]+_[0-9]+}}
+; X86-NEXT:    fxch %st(1)
+; X86-NEXT:    fucompp
+; X86-NEXT:    fnstsw %ax
+; X86-NEXT:    # kill: def $ah killed $ah killed $ax
+; X86-NEXT:    sahf
+; X86-NEXT:    setae %al
 ; X86-NEXT:    retl
 ;
 ; X64-LABEL: is_posinf_f80:
 ; X64:       # %bb.0: # %entry
-; X64-NEXT:    movzwl {{[0-9]+}}(%rsp), %eax
-; X64-NEXT:    movabsq $-9223372036854775808, %rcx # imm = 0x8000000000000000
-; X64-NEXT:    xorq {{[0-9]+}}(%rsp), %rcx
-; X64-NEXT:    xorq $32767, %rax # imm = 0x7FFF
-; X64-NEXT:    orq %rcx, %rax
-; X64-NEXT:    sete %al
+; X64-NEXT:    fldt {{[0-9]+}}(%rsp)
+; X64-NEXT:    flds {{\.?LCPI[0-9]+_[0-9]+}}(%rip)
+; X64-NEXT:    fxch %st(1)
+; X64-NEXT:    fucompi %st(1), %st
+; X64-NEXT:    fstp %st(0)
+; X64-NEXT:    setae %al
 ; X64-NEXT:    retq
 entry:
   %0 = tail call i1 @llvm.is.fpclass.f80(x86_fp80 %x, i32 512)  ; 0x200 = "+inf"
@@ -291,23 +292,22 @@ entry:
 define i1 @is_neginf_f80(x86_fp80 %x) nounwind {
 ; X86-LABEL: is_neginf_f80:
 ; X86:       # %bb.0: # %entry
-; X86-NEXT:    movzwl {{[0-9]+}}(%esp), %eax
-; X86-NEXT:    xorl $65535, %eax # imm = 0xFFFF
-; X86-NEXT:    movl $-2147483648, %ecx # imm = 0x80000000
-; X86-NEXT:    xorl {{[0-9]+}}(%esp), %ecx
-; X86-NEXT:    orl {{[0-9]+}}(%esp), %eax
-; X86-NEXT:    orl %ecx, %eax
-; X86-NEXT:    sete %al
+; X86-NEXT:    fldt {{[0-9]+}}(%esp)
+; X86-NEXT:    flds {{\.?LCPI[0-9]+_[0-9]+}}
+; X86-NEXT:    fucompp
+; X86-NEXT:    fnstsw %ax
+; X86-NEXT:    # kill: def $ah killed $ah killed $ax
+; X86-NEXT:    sahf
+; X86-NEXT:    setae %al
 ; X86-NEXT:    retl
 ;
 ; X64-LABEL: is_neginf_f80:
 ; X64:       # %bb.0: # %entry
-; X64-NEXT:    movzwl {{[0-9]+}}(%rsp), %eax
-; X64-NEXT:    xorq $65535, %rax # imm = 0xFFFF
-; X64-NEXT:    movabsq $-9223372036854775808, %rcx # imm = 0x8000000000000000
-; X64-NEXT:    xorq {{[0-9]+}}(%rsp), %rcx
-; X64-NEXT:    orq %rax, %rcx
-; X64-NEXT:    sete %al
+; X64-NEXT:    fldt {{[0-9]+}}(%rsp)
+; X64-NEXT:    flds {{\.?LCPI[0-9]+_[0-9]+}}(%rip)
+; X64-NEXT:    fucompi %st(1), %st
+; X64-NEXT:    fstp %st(0)
+; X64-NEXT:    setae %al
 ; X64-NEXT:    retq
 entry:
   %0 = tail call i1 @llvm.is.fpclass.f80(x86_fp80 %x, i32 4)  ; "-inf"

@@ -8628,18 +8628,29 @@ SDValue TargetLowering::expandIS_FPCLASS(EVT ResultVT, SDValue Op,
       return DAG.getSetCC(DL, ResultVT, Op, Op,
                           IsInvertedFP ? ISD::SETO : ISD::SETUO);
 
-    bool IsOrderedInf = FPTestMask == fcInf;
-    if ((FPTestMask == fcInf || FPTestMask == (fcInf | fcNan)) &&
-        isCondCodeLegalOrCustom(IsOrderedInf ? OrderedCmpOpcode
-                                             : UnorderedCmpOpcode,
-                                OperandVT.getScalarType().getSimpleVT()) &&
-        isOperationLegalOrCustom(ISD::FABS, OperandVT.getScalarType())) {
+    if (OrderedFPTestMask == fcInf &&
+        isCondCodeLegalOrCustom(IsOrdered ? OrderedCmpOpcode
+                                          : UnorderedCmpOpcode,
+                                OperandVT.getScalarType().getSimpleVT())) {
       // isinf(x) --> fabs(x) == inf
       SDValue Abs = DAG.getNode(ISD::FABS, DL, OperandVT, Op);
       SDValue Inf =
           DAG.getConstantFP(APFloat::getInf(Semantics), DL, OperandVT);
       return DAG.getSetCC(DL, ResultVT, Abs, Inf,
-                          IsOrderedInf ? OrderedCmpOpcode : UnorderedCmpOpcode);
+                          IsOrdered ? OrderedCmpOpcode : UnorderedCmpOpcode);
+    }
+
+    if (OrderedFPTestMask == fcPosInf || OrderedFPTestMask == fcNegInf) {
+      // isposinf(x) --> x == inf
+      // isneginf(x) --> x == -inf
+      // isposinf(x) || nan --> x u== inf
+      // isneginf(x) || nan --> x u== -inf
+
+      SDValue Inf = DAG.getConstantFP(
+          APFloat::getInf(Semantics, OrderedFPTestMask == fcNegInf), DL,
+          OperandVT);
+      return DAG.getSetCC(DL, ResultVT, Op, Inf,
+                          IsOrdered ? OrderedCmpOpcode : UnorderedCmpOpcode);
     }
 
     if (OrderedFPTestMask == (fcSubnormal | fcZero) && !IsOrdered) {
