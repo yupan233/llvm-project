@@ -16,12 +16,12 @@
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclarationName.h"
 #include "clang/AST/Expr.h"
+#include "clang/AST/ExprCXX.h"
 #include "clang/AST/ExternalASTSource.h"
+#include "clang/AST/ODRHash.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/TemplateName.h"
 #include "clang/AST/Type.h"
-#include "clang/AST/ODRHash.h"
-#include "clang/AST/ExprCXX.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/LLVM.h"
@@ -334,7 +334,7 @@ RedeclarableTemplateDecl::CommonBase *RedeclarableTemplateDecl::getCommonPtr() c
 }
 
 void RedeclarableTemplateDecl::loadLazySpecializationsImpl(
-                                             bool OnlyPartial/*=false*/) const {
+    bool OnlyPartial /*=false*/) const {
   // Grab the most recent declaration to ensure we've loaded any lazy
   // redeclarations of this template.
   CommonBase *CommonBasePtr = getMostRecentDecl()->getCommonPtr();
@@ -344,16 +344,16 @@ void RedeclarableTemplateDecl::loadLazySpecializationsImpl(
     unsigned N = Specs[0].DeclID.getRawValue();
     for (unsigned I = 0; I != N; ++I) {
       // Skip over already loaded specializations.
-      if (!Specs[I+1].ODRHash)
+      if (!Specs[I + 1].ODRHash)
         continue;
-      if (!OnlyPartial || Specs[I+1].IsPartial)
-        (void)loadLazySpecializationImpl(Specs[I+1]);
+      if (!OnlyPartial || Specs[I + 1].IsPartial)
+        (void)loadLazySpecializationImpl(Specs[I + 1]);
     }
   }
 }
 
 Decl *RedeclarableTemplateDecl::loadLazySpecializationImpl(
-                                   LazySpecializationInfo &LazySpecInfo) const {
+    LazySpecializationInfo &LazySpecInfo) const {
   GlobalDeclID ID = LazySpecInfo.DeclID;
   assert(ID.isValid() && "Loading already loaded specialization!");
   // Note that we loaded the specialization.
@@ -362,15 +362,13 @@ Decl *RedeclarableTemplateDecl::loadLazySpecializationImpl(
   return getASTContext().getExternalSource()->GetExternalDecl(ID);
 }
 
-void
-RedeclarableTemplateDecl::loadLazySpecializationsImpl(ArrayRef<TemplateArgument>
-                                                      Args,
-                                                      TemplateParameterList *TPL) const {
+void RedeclarableTemplateDecl::loadLazySpecializationsImpl(
+    ArrayRef<TemplateArgument> Args, TemplateParameterList *TPL) const {
   CommonBase *CommonBasePtr = getMostRecentDecl()->getCommonPtr();
   if (auto *Specs = CommonBasePtr->LazySpecializations) {
     unsigned Hash = TemplateArgumentList::ComputeODRHash(Args);
     unsigned N = Specs[0].DeclID.getRawValue();
-    for (uint32_t I = 0; I != N; ++I)
+    for (unsigned I = 0; I != N; ++I)
       if (Specs[I+1].ODRHash && Specs[I+1].ODRHash == Hash)
         (void)loadLazySpecializationImpl(Specs[I+1]);
   }
@@ -549,7 +547,7 @@ ClassTemplateDecl *ClassTemplateDecl::CreateDeserialized(ASTContext &C,
 }
 
 void ClassTemplateDecl::LoadLazySpecializations(
-                                             bool OnlyPartial/*=false*/) const {
+    bool OnlyPartial /*=false*/) const {
   loadLazySpecializationsImpl(OnlyPartial);
 }
 
@@ -1314,7 +1312,7 @@ VarTemplateDecl *VarTemplateDecl::CreateDeserialized(ASTContext &C,
 }
 
 void VarTemplateDecl::LoadLazySpecializations(
-                                             bool OnlyPartial/*=false*/) const {
+    bool OnlyPartial /*=false*/) const {
   loadLazySpecializationsImpl(OnlyPartial);
 }
 

@@ -89,8 +89,8 @@ namespace clang {
     const SourceLocation ThisDeclLoc;
 
     using RecordData = ASTReader::RecordData;
-    using LazySpecializationInfo
-      = RedeclarableTemplateDecl::LazySpecializationInfo;
+    using LazySpecializationInfo =
+        RedeclarableTemplateDecl::LazySpecializationInfo;
 
     TypeID DeferredTypeID = 0;
     unsigned AnonymousDeclNumber = 0;
@@ -271,9 +271,9 @@ namespace clang {
         : Reader(Reader), Record(Record), Loc(Loc), ThisDeclID(thisDeclID),
           ThisDeclLoc(ThisDeclLoc) {}
 
-    template <typename T> static
-    void AddLazySpecializations(T *D,
-                                SmallVectorImpl<LazySpecializationInfo>& IDs) {
+    template <typename T>
+    static void
+    AddLazySpecializations(T *D, SmallVectorImpl<LazySpecializationInfo> &IDs) {
       if (IDs.empty())
         return;
 
@@ -322,7 +322,7 @@ namespace clang {
     void ReadFunctionDefinition(FunctionDecl *FD);
     void Visit(Decl *D);
 
-    void UpdateDecl(Decl *D, llvm::SmallVectorImpl<LazySpecializationInfo>&);
+    void UpdateDecl(Decl *D, llvm::SmallVectorImpl<LazySpecializationInfo> &);
 
     static void setNextObjCCategory(ObjCCategoryDecl *Cat,
                                     ObjCCategoryDecl *Next) {
@@ -4253,8 +4253,8 @@ void ASTReader::loadDeclUpdateRecords(PendingUpdateRecord &Record) {
   ProcessingUpdatesRAIIObj ProcessingUpdates(*this);
   DeclUpdateOffsetsMap::iterator UpdI = DeclUpdateOffsets.find(ID);
 
-  using LazySpecializationInfo
-    = RedeclarableTemplateDecl::LazySpecializationInfo;
+  using LazySpecializationInfo =
+      RedeclarableTemplateDecl::LazySpecializationInfo;
   llvm::SmallVector<LazySpecializationInfo, 8> PendingLazySpecializationIDs;
 
   if (UpdI != DeclUpdateOffsets.end()) {
@@ -4520,8 +4520,9 @@ static void forAllLaterRedecls(DeclT *D, Fn F) {
   }
 }
 
-void ASTDeclReader::UpdateDecl(Decl *D,
-        SmallVectorImpl<LazySpecializationInfo> &PendingLazySpecializationIDs) {
+void ASTDeclReader::UpdateDecl(
+    Decl *D,
+    SmallVectorImpl<LazySpecializationInfo> &PendingLazySpecializationIDs) {
   while (Record.getIdx() < Record.size()) {
     switch ((DeclUpdateKind)Record.readInt()) {
     case UPD_CXX_ADDED_IMPLICIT_MEMBER: {

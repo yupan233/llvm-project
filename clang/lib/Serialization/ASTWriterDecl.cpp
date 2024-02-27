@@ -180,8 +180,9 @@ namespace clang {
 
     /// Collect the first declaration from each module file that provides a
     /// declaration of D.
-    void CollectFirstDeclFromEachModule(const Decl *D, bool IncludeLocal,
-                            llvm::MapVector<ModuleFile*, const Decl*> &Firsts) {
+    void CollectFirstDeclFromEachModule(
+        const Decl *D, bool IncludeLocal,
+        llvm::MapVector<ModuleFile *, const Decl *> &Firsts) {
 
       // FIXME: We can skip entries that we know are implied by others.
       for (const Decl *R = D->getMostRecentDecl(); R; R = R->getPreviousDecl()) {
@@ -196,7 +197,7 @@ namespace clang {
     /// provides a declaration of D. The intent is to provide a sufficient
     /// set such that reloading this set will load all current redeclarations.
     void AddFirstDeclFromEachModule(const Decl *D, bool IncludeLocal) {
-      llvm::MapVector<ModuleFile*, const Decl*> Firsts;
+      llvm::MapVector<ModuleFile *, const Decl *> Firsts;
       CollectFirstDeclFromEachModule(D, IncludeLocal, Firsts);
 
       for (const auto &F : Firsts)
@@ -210,9 +211,9 @@ namespace clang {
     void AddFirstSpecializationDeclFromEachModule(const Decl *D,
                                                   bool IncludeLocal) {
       assert(isa<ClassTemplateSpecializationDecl>(D) ||
-             isa<VarTemplateSpecializationDecl>(D) || isa<FunctionDecl>(D) &&
-             "Must not be called with other decls");
-      llvm::MapVector<ModuleFile*, const Decl*> Firsts;
+             isa<VarTemplateSpecializationDecl>(D) ||
+             isa<FunctionDecl>(D) && "Must not be called with other decls");
+      llvm::MapVector<ModuleFile *, const Decl *> Firsts;
       CollectFirstDeclFromEachModule(D, IncludeLocal, Firsts);
 
       for (const auto &F : Firsts) {
@@ -226,9 +227,9 @@ namespace clang {
           Args = FD->getTemplateSpecializationArgs()->asArray();
         assert(Args.size());
         Record.push_back(TemplateArgumentList::ComputeODRHash(Args));
-        bool IsPartialSpecialization
-          = isa<ClassTemplatePartialSpecializationDecl>(D) ||
-          isa<VarTemplatePartialSpecializationDecl>(D);
+        bool IsPartialSpecialization =
+            isa<ClassTemplatePartialSpecializationDecl>(D) ||
+            isa<VarTemplatePartialSpecializationDecl>(D);
         Record.push_back(IsPartialSpecialization);
       }
     }
@@ -263,8 +264,8 @@ namespace clang {
         assert(!Common->LazySpecializations);
       }
 
-      using LazySpecializationInfo
-        = RedeclarableTemplateDecl::LazySpecializationInfo;
+      using LazySpecializationInfo =
+          RedeclarableTemplateDecl::LazySpecializationInfo;
       ArrayRef<LazySpecializationInfo> LazySpecializations;
       if (auto *LS = Common->LazySpecializations)
         LazySpecializations = llvm::ArrayRef(LS + 1, LS[0].DeclID.getRawValue());
@@ -283,7 +284,7 @@ namespace clang {
 
       for (auto *D : Specs) {
         assert(D->isCanonicalDecl() && "non-canonical decl in set");
-        AddFirstSpecializationDeclFromEachModule(D, /*IncludeLocal*/true);
+        AddFirstSpecializationDeclFromEachModule(D, /*IncludeLocal*/ true);
       }
       for (auto &SpecInfo : LazySpecializations) {
         Record.push_back(SpecInfo.DeclID.getRawValue());
@@ -294,8 +295,8 @@ namespace clang {
       // Update the size entry we added earlier. We linerized the
       // LazySpecializationInfo members and we need to adjust the size as we
       // will read them always together.
-      assert ((Record.size() - I - 1) % 3 == 0
-              && "Must be divisible by LazySpecializationInfo count!");
+      assert((Record.size() - I - 1) % 3 == 0 &&
+             "Must be divisible by LazySpecializationInfo count!");
       Record[I] = (Record.size() - I - 1) / 3;
     }
 

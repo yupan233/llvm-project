@@ -5761,9 +5761,9 @@ void ASTWriter::WriteDeclUpdatesBlocks(RecordDataImpl &OffsetsRecord) {
           Args = FD->getTemplateSpecializationArgs()->asArray();
         assert(Args.size());
         Record.push_back(TemplateArgumentList::ComputeODRHash(Args));
-        bool IsPartialSpecialization
-          = isa<ClassTemplatePartialSpecializationDecl>(Spec) ||
-          isa<VarTemplatePartialSpecializationDecl>(Spec);
+        bool IsPartialSpecialization =
+            isa<ClassTemplatePartialSpecializationDecl>(Spec) ||
+            isa<VarTemplatePartialSpecializationDecl>(Spec);
         Record.push_back(IsPartialSpecialization);
         break;
       }
