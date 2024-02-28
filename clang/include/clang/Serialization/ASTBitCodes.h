@@ -726,7 +726,7 @@ enum ASTRecordTypes {
   VTABLES_TO_EMIT = 70,
 
   /// Record code for updated specialization
-  UPDATE_SPECIALIZATION = 71,
+  CXX_ADDED_TEMPLATE_SPECIALIZATION = 71,
 };
 
 /// Record types used within a source manager block.
