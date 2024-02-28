@@ -721,6 +721,12 @@ enum ASTRecordTypes {
 
   /// Record code for \#pragma clang unsafe_buffer_usage begin/end
   PP_UNSAFE_BUFFER_USAGE = 69,
+
+  /// Record code for vtables to emit.
+  VTABLES_TO_EMIT = 70,
+
+  /// Record code for updated specialization
+  UPDATE_SPECIALIZATION = 71,
 };
 
 /// Record types used within a source manager block.
@@ -1483,6 +1489,9 @@ enum DeclCode {
 
   /// A HLSLBufferDecl record.
   DECL_HLSL_BUFFER,
+
+  // A decls specilization record.
+  DECL_SPECIALIZATIONS,
 
   /// An ImplicitConceptSpecializationDecl record.
   DECL_IMPLICIT_CONCEPT_SPECIALIZATION,

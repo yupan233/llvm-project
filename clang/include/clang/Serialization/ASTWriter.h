@@ -418,6 +418,12 @@ private:
   /// Only meaningful for reduced BMI.
   DeclUpdateMap DeclUpdatesFromGMF;
 
+  /// Mapping from decl templates and its new specialization in the
+  /// current TU.
+  using SpecializationUpdateMap =
+      llvm::MapVector<const NamedDecl *, SmallVector<const Decl *>>;
+  SpecializationUpdateMap SpecializationsUpdates;
+
   using FirstLatestDeclMap = llvm::DenseMap<Decl *, Decl *>;
 
   /// Map of first declarations from a chained PCH that point to the
@@ -565,6 +571,12 @@ private:
 
   bool isLookupResultExternal(StoredDeclsList &Result, DeclContext *DC);
 
+  void GenerateSpecializationInfoLookupTable(
+      const NamedDecl *D, llvm::SmallVectorImpl<const Decl *> &Specializations,
+      llvm::SmallVectorImpl<char> &LookupTable);
+  uint64_t WriteSpecializationInfoLookupTable(
+      const NamedDecl *D, llvm::SmallVectorImpl<const Decl *> &Specializations);
+
   void GenerateNameLookupTable(const DeclContext *DC,
                                llvm::SmallVectorImpl<char> &LookupTable);
   uint64_t WriteDeclContextLexicalBlock(ASTContext &Context,
@@ -580,6 +592,7 @@ private:
   void WriteDeclAndTypes(ASTContext &Context);
   void PrepareWritingSpecialDecls(Sema &SemaRef);
   void WriteSpecialDeclRecords(Sema &SemaRef);
+  void WriteSpecializationsUpdates();
   void WriteDeclUpdatesBlocks(RecordDataImpl &OffsetsRecord);
   void WriteDeclContextVisibleUpdate(const DeclContext *DC);
   void WriteFPPragmaOptions(const FPOptionsOverride &Opts);
@@ -606,6 +619,8 @@ private:
   unsigned DeclEnumAbbrev = 0;
   unsigned DeclObjCIvarAbbrev = 0;
   unsigned DeclCXXMethodAbbrev = 0;
+  unsigned DeclSpecializationsAbbrev = 0;
+
   unsigned DeclDependentNonTemplateCXXMethodAbbrev = 0;
   unsigned DeclTemplateCXXMethodAbbrev = 0;
   unsigned DeclMemberSpecializedCXXMethodAbbrev = 0;
