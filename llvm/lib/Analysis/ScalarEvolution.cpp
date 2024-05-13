@@ -1001,7 +1001,7 @@ SCEVUse ScalarEvolution::getLosslessPtrToIntExpr(SCEVUse Op, unsigned Depth) {
   // What would be an ID for such a SCEV cast expression?
   FoldingSetNodeID ID;
   ID.AddInteger(scPtrToInt);
-  ID.AddPointer(Op);
+  ID.AddPointer(Op.getRawPointer());
 
   void *IP = nullptr;
 
@@ -1132,7 +1132,7 @@ SCEVUse ScalarEvolution::getTruncateExpr(SCEVUse Op, Type *Ty, unsigned Depth) {
 
   FoldingSetNodeID ID;
   ID.AddInteger(scTruncate);
-  ID.AddPointer(Op);
+  ID.AddPointer(Op.getRawPointer());
   ID.AddPointer(Ty);
   void *IP = nullptr;
   if (SCEVUse S = UniqueSCEVs.FindNodeOrInsertPos(ID, IP))
@@ -1453,8 +1453,8 @@ bool ScalarEvolution::proveNoWrapByVaryingStart(SCEVUse Start, SCEVUse Step,
 
     FoldingSetNodeID ID;
     ID.AddInteger(scAddRecExpr);
-    ID.AddPointer(PreStart);
-    ID.AddPointer(Step);
+    ID.AddPointer(PreStart.getRawPointer());
+    ID.AddPointer(Step.getRawPointer());
     ID.AddPointer(L);
     void *IP = nullptr;
     const auto *PreAR =
@@ -1573,7 +1573,7 @@ SCEVUse ScalarEvolution::getZeroExtendExprImpl(SCEVUse Op, Type *Ty,
   // computed a SCEV for this Op and Ty.
   FoldingSetNodeID ID;
   ID.AddInteger(scZeroExtend);
-  ID.AddPointer(Op);
+  ID.AddPointer(Op.getRawPointer());
   ID.AddPointer(Ty);
   void *IP = nullptr;
   if (SCEVUse S = UniqueSCEVs.FindNodeOrInsertPos(ID, IP))
@@ -1914,7 +1914,7 @@ SCEVUse ScalarEvolution::getSignExtendExprImpl(SCEVUse Op, Type *Ty,
   // computed a SCEV for this Op and Ty.
   FoldingSetNodeID ID;
   ID.AddInteger(scSignExtend);
-  ID.AddPointer(Op);
+  ID.AddPointer(Op.getRawPointer());
   ID.AddPointer(Ty);
   void *IP = nullptr;
   if (SCEVUse S = UniqueSCEVs.FindNodeOrInsertPos(ID, IP))
@@ -2220,7 +2220,7 @@ SCEVUse ScalarEvolution::getAnyExtendExpr(SCEVUse Op, Type *Ty) {
 /// may be exposed. This helps getAddRecExpr short-circuit extra work in
 /// the common case where no interesting opportunities are present, and
 /// is also used as a check to avoid infinite recursion.
-static bool CollectAddOperandsWithScales(DenseMap<const SCEV *, APInt> &M,
+static bool CollectAddOperandsWithScales(DenseMap<SCEVUse, APInt> &M,
                                          SmallVectorImpl<SCEVUse> &NewOps,
                                          APInt &AccumulatedConstant,
                                          ArrayRef<SCEVUse> Ops,
@@ -2268,7 +2268,7 @@ static bool CollectAddOperandsWithScales(DenseMap<const SCEV *, APInt> &M,
       }
     } else {
       // An ordinary operand. Update the map.
-      std::pair<DenseMap<const SCEV *, APInt>::iterator, bool> Pair =
+      std::pair<DenseMap<SCEVUse, APInt>::iterator, bool> Pair =
           M.insert({Ops[i], Scale});
       if (Pair.second) {
         NewOps.push_back(Pair.first->first);
@@ -2740,7 +2740,7 @@ SCEVUse ScalarEvolution::getAddExpr(SmallVectorImpl<SCEVUse> &Ops,
   // operands multiplied by constant values.
   if (Idx < Ops.size() && isa<SCEVMulExpr>(Ops[Idx])) {
     uint64_t BitWidth = getTypeSizeInBits(Ty);
-    DenseMap<const SCEV *, APInt> M;
+    DenseMap<SCEVUse, APInt> M;
     SmallVector<SCEVUse, 8> NewOps;
     APInt AccumulatedConstant(BitWidth, 0);
     if (CollectAddOperandsWithScales(M, NewOps, AccumulatedConstant,
@@ -2977,7 +2977,7 @@ SCEVUse ScalarEvolution::getOrCreateAddExpr(ArrayRef<SCEVUse> Ops,
   FoldingSetNodeID ID;
   ID.AddInteger(scAddExpr);
   for (SCEVUse Op : Ops)
-    ID.AddPointer(Op);
+    ID.AddPointer(Op.getRawPointer());
   void *IP = nullptr;
   SCEVAddExpr *S =
       static_cast<SCEVAddExpr *>(UniqueSCEVs.FindNodeOrInsertPos(ID, IP));
@@ -2999,7 +2999,7 @@ SCEVUse ScalarEvolution::getOrCreateAddRecExpr(ArrayRef<SCEVUse> Ops,
   FoldingSetNodeID ID;
   ID.AddInteger(scAddRecExpr);
   for (SCEVUse Op : Ops)
-    ID.AddPointer(Op);
+    ID.AddPointer(Op.getRawPointer());
   ID.AddPointer(L);
   void *IP = nullptr;
   SCEVAddRecExpr *S =
@@ -3022,7 +3022,7 @@ SCEVUse ScalarEvolution::getOrCreateMulExpr(ArrayRef<SCEVUse> Ops,
   FoldingSetNodeID ID;
   ID.AddInteger(scMulExpr);
   for (SCEVUse Op : Ops)
-    ID.AddPointer(Op);
+    ID.AddPointer(Op.getRawPointer());
   void *IP = nullptr;
   SCEVMulExpr *S =
     static_cast<SCEVMulExpr *>(UniqueSCEVs.FindNodeOrInsertPos(ID, IP));
@@ -3422,8 +3422,8 @@ SCEVUse ScalarEvolution::getUDivExpr(SCEVUse LHS, SCEVUse RHS) {
 
   FoldingSetNodeID ID;
   ID.AddInteger(scUDivExpr);
-  ID.AddPointer(LHS);
-  ID.AddPointer(RHS);
+  ID.AddPointer(LHS.getRawPointer());
+  ID.AddPointer(RHS.getRawPointer());
   void *IP = nullptr;
   if (SCEVUse S = UniqueSCEVs.FindNodeOrInsertPos(ID, IP))
     return S;
@@ -3489,8 +3489,8 @@ SCEVUse ScalarEvolution::getUDivExpr(SCEVUse LHS, SCEVUse RHS) {
                 // already cached.
                 ID.clear();
                 ID.AddInteger(scUDivExpr);
-                ID.AddPointer(LHS);
-                ID.AddPointer(RHS);
+                ID.AddPointer(LHS.getRawPointer());
+                ID.AddPointer(RHS.getRawPointer());
                 IP = nullptr;
                 if (SCEVUse S = UniqueSCEVs.FindNodeOrInsertPos(ID, IP))
                   return S;
@@ -3824,7 +3824,7 @@ SCEV *ScalarEvolution::findExistingSCEVInCache(SCEVTypes SCEVType,
   FoldingSetNodeID ID;
   ID.AddInteger(SCEVType);
   for (SCEVUse Op : Ops)
-    ID.AddPointer(Op);
+    ID.AddPointer(Op.getRawPointer());
   void *IP = nullptr;
   return UniqueSCEVs.FindNodeOrInsertPos(ID, IP);
 }
@@ -3966,8 +3966,8 @@ SCEVUse ScalarEvolution::getMinMaxExpr(SCEVTypes Kind,
   // already have one, otherwise create a new one.
   FoldingSetNodeID ID;
   ID.AddInteger(Kind);
-  for (const SCEV *Op : Ops)
-    ID.AddPointer(Op);
+  for (SCEVUse Op : Ops)
+    ID.AddPointer(Op.getRawPointer());
   void *IP = nullptr;
   SCEVUse ExistingSCEV = UniqueSCEVs.FindNodeOrInsertPos(ID, IP);
   if (ExistingSCEV)
@@ -4353,8 +4353,8 @@ ScalarEvolution::getSequentialMinMaxExpr(SCEVTypes Kind,
   // already have one, otherwise create a new one.
   FoldingSetNodeID ID;
   ID.AddInteger(Kind);
-  for (const SCEV *Op : Ops)
-    ID.AddPointer(Op);
+  for (SCEVUse Op : Ops)
+    ID.AddPointer(Op.getRawPointer());
   void *IP = nullptr;
   SCEVUse ExistingSCEV = UniqueSCEVs.FindNodeOrInsertPos(ID, IP);
   if (ExistingSCEV)
@@ -14547,8 +14547,8 @@ ScalarEvolution::getComparePredicate(const ICmpInst::Predicate Pred,
   // Unique this node based on the arguments
   ID.AddInteger(SCEVPredicate::P_Compare);
   ID.AddInteger(Pred);
-  ID.AddPointer(LHS);
-  ID.AddPointer(RHS);
+  ID.AddPointer(LHS.getRawPointer());
+  ID.AddPointer(RHS.getRawPointer());
   void *IP = nullptr;
   if (const auto *S = UniquePreds.FindNodeOrInsertPos(ID, IP))
     return S;
@@ -14564,6 +14564,7 @@ const SCEVPredicate *ScalarEvolution::getWrapPredicate(
   FoldingSetNodeID ID;
   // Unique this node based on the arguments
   ID.AddInteger(SCEVPredicate::P_Wrap);
+  // TODO: Use SCEVUse
   ID.AddPointer(AR);
   ID.AddInteger(AddedFlags);
   void *IP = nullptr;
