@@ -84,6 +84,9 @@ C++2c Feature Support
 Resolutions to C++ Defect Reports
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+- Clang now has improved resolution to CWG2398, allowing class templates to have
+  default arguments deduced when partial ordering.
+
 C Language Changes
 ------------------
 
@@ -119,7 +122,7 @@ Improvements to Clang's diagnostics
 - Some template related diagnostics have been improved.
 
   .. code-block:: c++
-    
+
      void foo() { template <typename> int i; } // error: templates can only be declared in namespace or class scope
 
      struct S {
