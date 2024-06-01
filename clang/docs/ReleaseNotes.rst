@@ -1205,6 +1205,8 @@ AST Matchers
   not skip the explicit object parameter for operator calls.
 - Fixed captureVars assertion failure if not capturesVariables. (#GH76425)
 - ``forCallable`` now properly preserves binding on successful match. (#GH89657)
+- The examples in the AST matcher reference are now tested and additional
+  examples and descriptions were added.
 
 clang-format
 ------------
