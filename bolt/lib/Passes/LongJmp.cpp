@@ -382,6 +382,11 @@ uint64_t LongJmpPass::tentativeLayoutRelocMode(
     DotAddress += Func->estimateConstantIslandSize();
     ++CurrentIndex;
   }
+  if (!ColdLayoutDone) {
+    errs() << "BOLT-ERROR: Did not perform tentative code layout for cold functions.\n";
+    exit(1);
+  }
+
   // BBs
   for (BinaryFunction *Func : SortedFunctions)
     tentativeBBLayout(*Func);
