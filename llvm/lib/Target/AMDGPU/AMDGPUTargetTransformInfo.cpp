@@ -1036,7 +1036,6 @@ bool GCNTTIImpl::collectFlatAddressOperands(SmallVectorImpl<int> &OpIndexes,
   switch (IID) {
   case Intrinsic::amdgcn_is_shared:
   case Intrinsic::amdgcn_is_private:
-  case Intrinsic::amdgcn_flat_atomic_fadd:
   case Intrinsic::amdgcn_flat_atomic_fmax:
   case Intrinsic::amdgcn_flat_atomic_fmin:
   case Intrinsic::amdgcn_flat_atomic_fmax_num:
@@ -1098,7 +1097,6 @@ Value *GCNTTIImpl::rewriteIntrinsicWithAddressSpace(IntrinsicInst *II,
     return B.CreateIntrinsic(Intrinsic::ptrmask, {NewV->getType(), MaskTy},
                              {NewV, MaskOp});
   }
-  case Intrinsic::amdgcn_flat_atomic_fadd:
   case Intrinsic::amdgcn_flat_atomic_fmax:
   case Intrinsic::amdgcn_flat_atomic_fmin:
   case Intrinsic::amdgcn_flat_atomic_fmax_num:
