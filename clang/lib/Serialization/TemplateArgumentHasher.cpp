@@ -33,19 +33,18 @@ class TemplateArgumentHasher {
   static constexpr unsigned BailedOutValue = 0x12345678;
 
   llvm::FoldingSetNodeID ID;
+
 public:
   TemplateArgumentHasher() = default;
 
   void AddTemplateArgument(TemplateArgument TA);
 
-  void AddInteger(unsigned V) {
-    ID.AddInteger(V);
-  }
+  void AddInteger(unsigned V) { ID.AddInteger(V); }
 
   unsigned getValue() {
     if (BailedOut)
       return BailedOutValue;
-    
+
     return ID.computeStableHash();
   }
 
@@ -65,43 +64,43 @@ void TemplateArgumentHasher::AddTemplateArgument(TemplateArgument TA) {
   AddInteger(Kind);
 
   switch (Kind) {
-    case TemplateArgument::Null:
-      llvm_unreachable("Expected valid TemplateArgument");
-    case TemplateArgument::Type:
-      AddQualType(TA.getAsType());
-      break;
-    case TemplateArgument::Declaration:
-      AddDecl(TA.getAsDecl());
-      break;
-    case TemplateArgument::NullPtr:
-      ID.AddPointer(nullptr);
-      break;
-    case TemplateArgument::Integral: {
-      // There are integrals (e.g.: _BitInt(128)) that cannot be represented as
-      // any builtin integral type, so we use the hash of APSInt instead.
-      TA.getAsIntegral().Profile(ID);
-      break;
+  case TemplateArgument::Null:
+    llvm_unreachable("Expected valid TemplateArgument");
+  case TemplateArgument::Type:
+    AddQualType(TA.getAsType());
+    break;
+  case TemplateArgument::Declaration:
+    AddDecl(TA.getAsDecl());
+    break;
+  case TemplateArgument::NullPtr:
+    ID.AddPointer(nullptr);
+    break;
+  case TemplateArgument::Integral: {
+    // There are integrals (e.g.: _BitInt(128)) that cannot be represented as
+    // any builtin integral type, so we use the hash of APSInt instead.
+    TA.getAsIntegral().Profile(ID);
+    break;
+  }
+  case TemplateArgument::StructuralValue:
+    AddQualType(TA.getStructuralValueType());
+    AddStructuralValue(TA.getAsStructuralValue());
+    break;
+  case TemplateArgument::Template:
+  case TemplateArgument::TemplateExpansion:
+    AddTemplateName(TA.getAsTemplateOrTemplatePattern());
+    break;
+  case TemplateArgument::Expression:
+    // If we meet expression in template argument, it implies
+    // that the template is still dependent. It is meaningless
+    // to get a stable hash for the template. Bail out simply.
+    BailedOut = true;
+    break;
+  case TemplateArgument::Pack:
+    AddInteger(TA.pack_size());
+    for (auto SubTA : TA.pack_elements()) {
+      AddTemplateArgument(SubTA);
     }
-    case TemplateArgument::StructuralValue:
-      AddQualType(TA.getStructuralValueType());
-      AddStructuralValue(TA.getAsStructuralValue());
-      break;
-    case TemplateArgument::Template:
-    case TemplateArgument::TemplateExpansion:
-      AddTemplateName(TA.getAsTemplateOrTemplatePattern());
-      break;
-    case TemplateArgument::Expression:
-      // If we meet expression in template argument, it implies
-      // that the template is still dependent. It is meaningless
-      // to get a stable hash for the template. Bail out simply.
-      BailedOut = true;
-      break;
-    case TemplateArgument::Pack:
-      AddInteger(TA.pack_size());
-      for (auto SubTA : TA.pack_elements()) {
-        AddTemplateArgument(SubTA);
-      }
-      break;
+    break;
   }
 }
 
@@ -157,7 +156,7 @@ void TemplateArgumentHasher::AddDeclarationName(DeclarationName Name) {
   if (Name.isEmpty())
     return;
 
-  switch(Name.getNameKind()) {
+  switch (Name.getNameKind()) {
   case DeclarationName::Identifier:
     AddIdentifierInfo(Name.getAsIdentifierInfo());
     break;
@@ -227,9 +226,7 @@ public:
       Hash.AddInteger(0);
   }
 
-  void AddQualType(QualType T) {
-    Hash.AddQualType(T);
-  }
+  void AddQualType(QualType T) { Hash.AddQualType(T); }
 
   void AddType(const Type *T) {
     if (T)
@@ -242,14 +239,10 @@ public:
     Hash.AddInteger(Quals.getAsOpaqueValue());
   }
 
-  void Visit(const Type *T) {
-    Inherited::Visit(T);
-  }
+  void Visit(const Type *T) { Inherited::Visit(T); }
 
   // Unhandled types. Bail out simply.
-  void VisitType(const Type *T) {
-    Hash.setBailedOut();
-  }
+  void VisitType(const Type *T) { Hash.setBailedOut(); }
 
   void VisitAdjustedType(const AdjustedType *T) {
     AddQualType(T->getOriginalType());
@@ -276,9 +269,7 @@ public:
     AddQualType(T->getModifiedType());
   }
 
-  void VisitBuiltinType(const BuiltinType *T) {
-    Hash.AddInteger(T->getKind());
-  }
+  void VisitBuiltinType(const BuiltinType *T) { Hash.AddInteger(T->getKind()); }
 
   void VisitComplexType(const ComplexType *T) {
     AddQualType(T->getElementType());
@@ -292,9 +283,7 @@ public:
     AddQualType(T->getDeducedType());
   }
 
-  void VisitAutoType(const AutoType *T) {
-    VisitDeducedType(T);
-  }
+  void VisitAutoType(const AutoType *T) { VisitDeducedType(T); }
 
   void VisitDeducedTemplateSpecializationType(
       const DeducedTemplateSpecializationType *T) {
@@ -331,9 +320,7 @@ public:
     AddQualType(T->getPattern());
   }
 
-  void VisitParenType(const ParenType *T) {
-    AddQualType(T->getInnerType());
-  }
+  void VisitParenType(const ParenType *T) { AddQualType(T->getInnerType()); }
 
   void VisitPointerType(const PointerType *T) {
     AddQualType(T->getPointeeType());
@@ -362,9 +349,7 @@ public:
     AddQualType(T->getReplacementType());
   }
 
-  void VisitTagType(const TagType *T) {
-    AddDecl(T->getDecl());
-  }
+  void VisitTagType(const TagType *T) { AddDecl(T->getDecl()); }
 
   void VisitRecordType(const RecordType *T) { VisitTagType(T); }
   void VisitEnumType(const EnumType *T) { VisitTagType(T); }
@@ -383,9 +368,7 @@ public:
     Hash.AddInteger(T->isParameterPack());
   }
 
-  void VisitTypedefType(const TypedefType *T) {
-    AddDecl(T->getDecl());
-  }
+  void VisitTypedefType(const TypedefType *T) { AddDecl(T->getDecl()); }
 
   void VisitElaboratedType(const ElaboratedType *T) {
     AddQualType(T->getNamedType());
@@ -402,9 +385,7 @@ public:
     Hash.AddInteger(llvm::to_underlying(T->getVectorKind()));
   }
 
-  void VisitExtVectorType(const ExtVectorType * T) {
-    VisitVectorType(T);
-  }
+  void VisitExtVectorType(const ExtVectorType *T) { VisitVectorType(T); }
 };
 
 void TemplateArgumentHasher::AddType(const Type *T) {
@@ -412,9 +393,10 @@ void TemplateArgumentHasher::AddType(const Type *T) {
   TypeVisitorHelper(ID, *this).Visit(T);
 }
 
-}
+} // namespace
 
-unsigned clang::serialization::StableHashForTemplateArguments(llvm::ArrayRef<TemplateArgument> Args) {
+unsigned clang::serialization::StableHashForTemplateArguments(
+    llvm::ArrayRef<TemplateArgument> Args) {
   TemplateArgumentHasher Hasher;
   Hasher.AddInteger(Args.size());
   for (TemplateArgument Arg : Args)

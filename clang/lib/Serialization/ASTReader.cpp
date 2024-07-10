@@ -7697,7 +7697,8 @@ void ASTReader::CompleteRedeclChain(const Decl *D) {
 
   if (Template) {
     // For partitial specialization, load all the specializations for safety.
-    if (isa<ClassTemplatePartialSpecializationDecl, VarTemplatePartialSpecializationDecl>(D))
+    if (isa<ClassTemplatePartialSpecializationDecl,
+            VarTemplatePartialSpecializationDecl>(D))
       Template->loadLazySpecializationsImpl();
     else
       Template->loadLazySpecializationsImpl(Args);
@@ -8033,7 +8034,7 @@ bool ASTReader::LoadExternalSpecializations(const Decl *D, bool OnlyPartial) {
   // the lookup table.
   if (!OnlyPartial)
     SpecializationsLookups.erase(It);
-  
+
   bool NewSpecsFound = false;
   Deserializing LookupResults(this);
   for (auto &Info : Infos)

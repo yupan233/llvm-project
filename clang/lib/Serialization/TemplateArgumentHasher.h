@@ -30,5 +30,5 @@ namespace serialization {
 /// but have the same meaning. But it is not easy to raise examples.
 unsigned StableHashForTemplateArguments(llvm::ArrayRef<TemplateArgument> Args);
 
-}
-}
+} // namespace serialization
+} // namespace clang
