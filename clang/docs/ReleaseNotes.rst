@@ -186,6 +186,8 @@ Bug Fixes to C++ Support
   substitutions in concepts, so it doesn't incorrectly complain of missing
   module imports in those situations. (#GH60336)
 - Fix init-capture packs having a size of one before being instantiated. (#GH63677)
+- When performing partial ordering of function templates, clang now checks that
+  the deduction was consistent. Fixes (#GH18291).
 
 Bug Fixes to AST Handling
 ^^^^^^^^^^^^^^^^^^^^^^^^^
