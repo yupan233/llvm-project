@@ -83,10 +83,9 @@ define i64 @f64_i32(double %in) {
 ; CHECK-BASE-NEXT:    ret i64 [[MAX]]
 ;
 ; CHECK-MVEFP-LABEL: @f64_i32(
-; CHECK-MVEFP-NEXT:    [[CONV:%.*]] = fptosi double [[IN:%.*]] to i64
-; CHECK-MVEFP-NEXT:    [[MIN:%.*]] = call i64 @llvm.smin.i64(i64 [[CONV]], i64 2147483647)
-; CHECK-MVEFP-NEXT:    [[MAX:%.*]] = call i64 @llvm.smax.i64(i64 [[MIN]], i64 -2147483648)
-; CHECK-MVEFP-NEXT:    ret i64 [[MAX]]
+; CHECK-MVEFP-NEXT:    [[TMP1:%.*]] = call i32 @llvm.fptosi.sat.i32.f64(double [[IN:%.*]])
+; CHECK-MVEFP-NEXT:    [[TMP2:%.*]] = sext i32 [[TMP1]] to i64
+; CHECK-MVEFP-NEXT:    ret i64 [[TMP2]]
 ;
 ; CHECK-FP64-LABEL: @f64_i32(
 ; CHECK-FP64-NEXT:    [[TMP1:%.*]] = call i32 @llvm.fptosi.sat.i32.f64(double [[IN:%.*]])
@@ -100,11 +99,22 @@ define i64 @f64_i32(double %in) {
 }
 
 define i64 @f64_i31(double %in) {
-; CHECK-LABEL: @f64_i31(
-; CHECK-NEXT:    [[CONV:%.*]] = fptosi double [[IN:%.*]] to i64
-; CHECK-NEXT:    [[MIN:%.*]] = call i64 @llvm.smin.i64(i64 [[CONV]], i64 1073741823)
-; CHECK-NEXT:    [[MAX:%.*]] = call i64 @llvm.smax.i64(i64 [[MIN]], i64 -1073741824)
-; CHECK-NEXT:    ret i64 [[MAX]]
+; CHECK-BASE-LABEL: @f64_i31(
+; CHECK-BASE-NEXT:    [[CONV:%.*]] = fptosi double [[IN:%.*]] to i64
+; CHECK-BASE-NEXT:    [[MIN:%.*]] = call i64 @llvm.smin.i64(i64 [[CONV]], i64 1073741823)
+; CHECK-BASE-NEXT:    [[MAX:%.*]] = call i64 @llvm.smax.i64(i64 [[MIN]], i64 -1073741824)
+; CHECK-BASE-NEXT:    ret i64 [[MAX]]
+;
+; CHECK-MVEFP-LABEL: @f64_i31(
+; CHECK-MVEFP-NEXT:    [[TMP1:%.*]] = call i31 @llvm.fptosi.sat.i31.f64(double [[IN:%.*]])
+; CHECK-MVEFP-NEXT:    [[TMP2:%.*]] = sext i31 [[TMP1]] to i64
+; CHECK-MVEFP-NEXT:    ret i64 [[TMP2]]
+;
+; CHECK-FP64-LABEL: @f64_i31(
+; CHECK-FP64-NEXT:    [[CONV:%.*]] = fptosi double [[IN:%.*]] to i64
+; CHECK-FP64-NEXT:    [[MIN:%.*]] = call i64 @llvm.smin.i64(i64 [[CONV]], i64 1073741823)
+; CHECK-FP64-NEXT:    [[MAX:%.*]] = call i64 @llvm.smax.i64(i64 [[MIN]], i64 -1073741824)
+; CHECK-FP64-NEXT:    ret i64 [[MAX]]
 ;
   %conv = fptosi double %in to i64
   %min = call i64 @llvm.smin.i64(i64 %conv, i64 1073741823)
@@ -113,11 +123,22 @@ define i64 @f64_i31(double %in) {
 }
 
 define i32 @f64_i16(double %in) {
-; CHECK-LABEL: @f64_i16(
-; CHECK-NEXT:    [[CONV:%.*]] = fptosi double [[IN:%.*]] to i32
-; CHECK-NEXT:    [[MIN:%.*]] = call i32 @llvm.smin.i32(i32 [[CONV]], i32 32767)
-; CHECK-NEXT:    [[MAX:%.*]] = call i32 @llvm.smax.i32(i32 [[MIN]], i32 -32768)
-; CHECK-NEXT:    ret i32 [[MAX]]
+; CHECK-BASE-LABEL: @f64_i16(
+; CHECK-BASE-NEXT:    [[CONV:%.*]] = fptosi double [[IN:%.*]] to i32
+; CHECK-BASE-NEXT:    [[MIN:%.*]] = call i32 @llvm.smin.i32(i32 [[CONV]], i32 32767)
+; CHECK-BASE-NEXT:    [[MAX:%.*]] = call i32 @llvm.smax.i32(i32 [[MIN]], i32 -32768)
+; CHECK-BASE-NEXT:    ret i32 [[MAX]]
+;
+; CHECK-MVEFP-LABEL: @f64_i16(
+; CHECK-MVEFP-NEXT:    [[TMP1:%.*]] = call i16 @llvm.fptosi.sat.i16.f64(double [[IN:%.*]])
+; CHECK-MVEFP-NEXT:    [[TMP2:%.*]] = sext i16 [[TMP1]] to i32
+; CHECK-MVEFP-NEXT:    ret i32 [[TMP2]]
+;
+; CHECK-FP64-LABEL: @f64_i16(
+; CHECK-FP64-NEXT:    [[CONV:%.*]] = fptosi double [[IN:%.*]] to i32
+; CHECK-FP64-NEXT:    [[MIN:%.*]] = call i32 @llvm.smin.i32(i32 [[CONV]], i32 32767)
+; CHECK-FP64-NEXT:    [[MAX:%.*]] = call i32 @llvm.smax.i32(i32 [[MIN]], i32 -32768)
+; CHECK-FP64-NEXT:    ret i32 [[MAX]]
 ;
   %conv = fptosi double %in to i32
   %min = call i32 @llvm.smin.i32(i32 %conv, i32 32767)
