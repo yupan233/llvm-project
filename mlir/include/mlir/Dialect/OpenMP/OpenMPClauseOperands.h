@@ -17,6 +17,7 @@
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
+#include <mlir/Dialect/OpenMP/OpenMPDialect.h>
 
 #include "mlir/Dialect/OpenMP/OpenMPOpsEnums.h.inc"
 
@@ -315,6 +316,8 @@ using TaskwaitOperands = detail::Clauses<DependClauseOps, NowaitClauseOps>;
 using TeamsOperands =
     detail::Clauses<AllocateClauseOps, IfClauseOps, NumTeamsClauseOps,
                     PrivateClauseOps, ReductionClauseOps, ThreadLimitClauseOps>;
+
+using WorkshareOperands = detail::Clauses<NowaitClauseOps>;
 
 using WsloopOperands =
     detail::Clauses<AllocateClauseOps, LinearClauseOps, NowaitClauseOps,
