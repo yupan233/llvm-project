@@ -21,6 +21,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/iterator_range.h"
 
+#include <mlir/Dialect/OpenMP/OpenMPClauseOperands.h>
 #include <variant>
 
 namespace flangomp {
@@ -73,7 +74,7 @@ static bool isSafeToParallelize(Operation *op) {
 ///
 /// omp.workshare {
 ///   %a = fir.allocmem
-///   omp.wsloop {}
+///   omp.workshare_loop_wrapper {}
 ///   fir.call Assign %b %a
 ///   fir.freemem %a
 /// }
@@ -85,7 +86,7 @@ static bool isSafeToParallelize(Operation *op) {
 ///   fir.store %a %tmp
 /// }
 /// %a_reloaded = fir.load %tmp
-/// omp.wsloop {}
+/// omp.workshare_loop_wrapper {}
 /// omp.single {
 ///   fir.call Assign %b %a_reloaded
 ///   fir.freemem %a_reloaded
@@ -180,20 +181,20 @@ void lowerWorkshare(mlir::omp::WorkshareOp wsOp) {
   assert(wsBlock->getTerminator()->getNumOperands() == 0);
   Operation *terminator = wsBlock->getTerminator();
 
-  SmallVector<std::variant<SingleRegion, omp::WsloopOp>> regions;
+  SmallVector<std::variant<SingleRegion, omp::WorkshareLoopWrapperOp>> regions;
 
   auto it = wsBlock->begin();
   auto getSingleRegion = [&]() {
     if (&*it == terminator)
       return false;
-    if (auto pop = dyn_cast<omp::WsloopOp>(&*it)) {
+    if (auto pop = dyn_cast<omp::WorkshareLoopWrapperOp>(&*it)) {
       regions.push_back(pop);
       it++;
       return true;
     }
     SingleRegion sr;
     sr.begin = it;
-    while (&*it != terminator && !isa<omp::WsloopOp>(&*it))
+    while (&*it != terminator && !isa<omp::WorkshareLoopWrapperOp>(&*it))
       it++;
     sr.end = it;
     assert(sr.begin != sr.end);
@@ -214,9 +215,16 @@ void lowerWorkshare(mlir::omp::WorkshareOp wsOp) {
       singleBuilder.createBlock(&singleOp.getRegion());
       moveToSingle(std::get<SingleRegion>(loopOrSingle), singleBuilder);
     } else {
-      rootBuilder.clone(*std::get<omp::WsloopOp>(loopOrSingle), rootMapping);
-      if (!isLast)
-        rootBuilder.create<omp::BarrierOp>(loc);
+      omp::WsloopOperands wsloopOperands;
+      if (isLast)
+        wsloopOperands.nowait = rootBuilder.getUnitAttr();
+      auto wsloop =
+          rootBuilder.create<mlir::omp::WsloopOp>(loc, wsloopOperands);
+      auto wslw = std::get<omp::WorkshareLoopWrapperOp>(loopOrSingle);
+      auto clonedWslw = cast<omp::WorkshareLoopWrapperOp>(
+          rootBuilder.clone(*wslw, rootMapping));
+      wsloop.getRegion().takeBody(clonedWslw.getRegion());
+      clonedWslw->erase();
     }
   }
 

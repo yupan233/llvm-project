@@ -34,7 +34,6 @@ module {
 // CHECK:               }
 // CHECK:               omp.terminator
 // CHECK:             }
-// CHECK:             omp.barrier
 // CHECK:             omp.single nowait {
 // CHECK:               hlfir.assign %[[VAL_14]] to %[[VAL_13]] : !fir.heap<!fir.array<42xi32>>, !fir.ref<!fir.array<42xi32>>
 // CHECK:               fir.freemem %[[VAL_14]] : !fir.heap<!fir.array<42xi32>>
@@ -56,7 +55,7 @@ module {
         %3:2 = hlfir.declare %2(%0) {uniq_name = ".tmp.array"} : (!fir.heap<!fir.array<42xi32>>, !fir.shape<1>) -> (!fir.heap<!fir.array<42xi32>>, !fir.heap<!fir.array<42xi32>>)
         %true = arith.constant true
         %c1 = arith.constant 1 : index
-        omp.wsloop {
+        "omp.workshare_loop_wrapper"() ({
           omp.loop_nest (%arg1) : index = (%c1) to (%c42) inclusive step (%c1) {
             %7 = hlfir.designate %1#0 (%arg1)  : (!fir.ref<!fir.array<42xi32>>, index) -> !fir.ref<i32>
             %8 = fir.load %7 : !fir.ref<i32>
@@ -66,7 +65,7 @@ module {
             omp.yield
           }
           omp.terminator
-        }
+        }) : () -> ()
         %4 = fir.undefined tuple<!fir.heap<!fir.array<42xi32>>, i1>
         %5 = fir.insert_value %4, %true, [1 : index] : (tuple<!fir.heap<!fir.array<42xi32>>, i1>, i1) -> tuple<!fir.heap<!fir.array<42xi32>>, i1>
         %6 = fir.insert_value %5, %3#0, [0 : index] : (tuple<!fir.heap<!fir.array<42xi32>>, i1>, !fir.heap<!fir.array<42xi32>>) -> tuple<!fir.heap<!fir.array<42xi32>>, i1>
