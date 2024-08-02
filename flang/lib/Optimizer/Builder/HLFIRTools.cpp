@@ -857,7 +857,7 @@ mlir::Value hlfir::inlineElementalOp(
 hlfir::LoopNest hlfir::genLoopNest(mlir::Location loc,
                                    fir::FirOpBuilder &builder,
                                    mlir::ValueRange extents, bool isUnordered,
-                                   bool emitWsLoop) {
+                                   bool emitWorkshareLoop) {
   hlfir::LoopNest loopNest;
   assert(!extents.empty() && "must have at least one extent");
   mlir::OpBuilder::InsertionGuard guard(builder);
@@ -865,11 +865,10 @@ hlfir::LoopNest hlfir::genLoopNest(mlir::Location loc,
   // Build loop nest from column to row.
   auto one = builder.create<mlir::arith::ConstantIndexOp>(loc, 1);
   mlir::Type indexType = builder.getIndexType();
-  if (emitWsLoop) {
-    auto wsloop = builder.create<mlir::omp::WsloopOp>(
-        loc, mlir::ArrayRef<mlir::NamedAttribute>());
-    loopNest.outerOp = wsloop;
-    builder.createBlock(&wsloop.getRegion());
+  if (emitWorkshareLoop) {
+    auto wslw = builder.create<mlir::omp::WorkshareLoopWrapperOp>(loc);
+    loopNest.outerOp = wslw;
+    builder.createBlock(&wslw.getRegion());
     mlir::omp::LoopNestOperands lnops;
     lnops.loopInclusive = builder.getUnitAttr();
     for (auto extent : llvm::reverse(extents)) {
