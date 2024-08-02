@@ -120,8 +120,6 @@ void lowerWorkshare(mlir::omp::WorkshareOp wsOp) {
   OpBuilder rootBuilder(wsOp);
   IRMapping rootMapping;
 
-  omp::SingleOp singleOp = nullptr;
-
   auto mapReloadedValue = [&](Value v, OpBuilder singleBuilder,
                               IRMapping singleMapping) {
     if (auto reloaded = rootMapping.lookupOrNull(v))
@@ -210,7 +208,8 @@ void lowerWorkshare(mlir::omp::WorkshareOp wsOp) {
       omp::SingleOperands singleOperands;
       if (isLast)
         singleOperands.nowait = rootBuilder.getUnitAttr();
-      singleOp = rootBuilder.create<omp::SingleOp>(loc, singleOperands);
+      omp::SingleOp singleOp =
+          rootBuilder.create<omp::SingleOp>(loc, singleOperands);
       OpBuilder singleBuilder(singleOp);
       singleBuilder.createBlock(&singleOp.getRegion());
       moveToSingle(std::get<SingleRegion>(loopOrSingle), singleBuilder);
