@@ -308,6 +308,17 @@ def WorkshareOp : OpenMP_Op<"workshare", clauses = [
   let hasVerifier = 1;
 }
 
+def WorkshareLoopWrapperOp : OpenMP_Op<"workshare_loop_wrapper", traits = [
+    DeclareOpInterfaceMethods<LoopWrapperInterface>,
+    RecursiveMemoryEffects, SingleBlock
+  ], singleRegion = true> {
+  let summary = "contains loop nests to be parallelized by workshare";
+
+  let builders = [
+    OpBuilder<(ins), [{ build($_builder, $_state, {}); }]>
+  ];
+}
+
 //===----------------------------------------------------------------------===//
 // Loop Nest
 //===----------------------------------------------------------------------===//
