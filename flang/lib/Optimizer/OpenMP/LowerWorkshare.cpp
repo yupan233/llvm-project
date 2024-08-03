@@ -19,9 +19,14 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVectorExtras.h"
 #include "llvm/ADT/iterator_range.h"
 
+#include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/OpenMP/OpenMPClauseOperands.h>
+#include <mlir/Dialect/SCF/IR/SCF.h>
+#include <mlir/IR/Visitors.h>
+#include <mlir/Interfaces/SideEffectInterfaces.h>
 #include <variant>
 
 namespace flangomp {
@@ -52,20 +57,146 @@ static bool isSupportedByFirAlloca(Type ty) {
   return !isa<fir::ReferenceType>(ty);
 }
 
+static bool mustParallelizeOp(Operation *op) {
+  return op
+      ->walk(
+          [](omp::WorkshareLoopWrapperOp) { return WalkResult::interrupt(); })
+      .wasInterrupted();
+}
+
 static bool isSafeToParallelize(Operation *op) {
-  if (isa<fir::DeclareOp>(op))
-    return true;
+  return isa<fir::DeclareOp>(op) || isPure(op);
+}
 
-  llvm::SmallVector<MemoryEffects::EffectInstance> effects;
-  MemoryEffectOpInterface interface = dyn_cast<MemoryEffectOpInterface>(op);
-  if (!interface) {
-    return false;
+static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
+                              IRMapping &rootMapping, Location loc) {
+  Operation *parentOp = sourceRegion.getParentOp();
+  OpBuilder rootBuilder(sourceRegion.getContext());
+
+  // TODO need to copyprivate the alloca's
+  auto mapReloadedValue = [&](Value v, OpBuilder singleBuilder,
+                              IRMapping singleMapping) {
+    OpBuilder allocaBuilder(&targetRegion.front().front());
+    if (auto reloaded = rootMapping.lookupOrNull(v))
+      return;
+    Type llvmPtrTy = LLVM::LLVMPointerType::get(allocaBuilder.getContext());
+    Type ty = v.getType();
+    Value alloc, reloaded;
+    if (isSupportedByFirAlloca(ty)) {
+      alloc = allocaBuilder.create<fir::AllocaOp>(loc, ty);
+      singleBuilder.create<fir::StoreOp>(loc, singleMapping.lookup(v), alloc);
+      reloaded = rootBuilder.create<fir::LoadOp>(loc, ty, alloc);
+    } else {
+      auto one = allocaBuilder.create<LLVM::ConstantOp>(
+          loc, allocaBuilder.getI32Type(), 1);
+      alloc =
+          allocaBuilder.create<LLVM::AllocaOp>(loc, llvmPtrTy, llvmPtrTy, one);
+      Value toStore = singleBuilder
+                          .create<UnrealizedConversionCastOp>(
+                              loc, llvmPtrTy, singleMapping.lookup(v))
+                          .getResult(0);
+      singleBuilder.create<LLVM::StoreOp>(loc, toStore, alloc);
+      reloaded = rootBuilder.create<LLVM::LoadOp>(loc, llvmPtrTy, alloc);
+      reloaded =
+          rootBuilder.create<UnrealizedConversionCastOp>(loc, ty, reloaded)
+              .getResult(0);
+    }
+    rootMapping.map(v, reloaded);
+  };
+
+  auto moveToSingle = [&](SingleRegion sr, OpBuilder singleBuilder) {
+    IRMapping singleMapping = rootMapping;
+
+    for (Operation &op : llvm::make_range(sr.begin, sr.end)) {
+      singleBuilder.clone(op, singleMapping);
+      if (isSafeToParallelize(&op)) {
+        rootBuilder.clone(op, rootMapping);
+      } else {
+        // Prepare reloaded values for results of operations that cannot be
+        // safely parallelized and which are used after the region `sr`
+        for (auto res : op.getResults()) {
+          for (auto &use : res.getUses()) {
+            Operation *user = use.getOwner();
+            while (user->getParentOp() != parentOp)
+              user = user->getParentOp();
+            if (!(user->isBeforeInBlock(&*sr.end) &&
+                  sr.begin->isBeforeInBlock(user))) {
+              // We need to reload
+              mapReloadedValue(use.get(), singleBuilder, singleMapping);
+            }
+          }
+        }
+      }
+    }
+    singleBuilder.create<omp::TerminatorOp>(loc);
+  };
+
+  // TODO Need to handle these (clone them) in dominator tree order
+  for (Block &block : sourceRegion) {
+    rootBuilder.createBlock(
+        &targetRegion, {}, block.getArgumentTypes(),
+        llvm::map_to_vector(block.getArguments(),
+                            [](BlockArgument arg) { return arg.getLoc(); }));
+    Operation *terminator = block.getTerminator();
+
+    SmallVector<std::variant<SingleRegion, Operation *>> regions;
+
+    auto it = block.begin();
+    auto getOneRegion = [&]() {
+      if (&*it == terminator)
+        return false;
+      if (mustParallelizeOp(&*it)) {
+        regions.push_back(&*it);
+        it++;
+        return true;
+      }
+      SingleRegion sr;
+      sr.begin = it;
+      while (&*it != terminator && !mustParallelizeOp(&*it))
+        it++;
+      sr.end = it;
+      assert(sr.begin != sr.end);
+      regions.push_back(sr);
+      return true;
+    };
+    while (getOneRegion())
+      ;
+
+    for (auto [i, opOrSingle] : llvm::enumerate(regions)) {
+      bool isLast = i + 1 == regions.size();
+      if (std::holds_alternative<SingleRegion>(opOrSingle)) {
+        omp::SingleOperands singleOperands;
+        if (isLast)
+          singleOperands.nowait = rootBuilder.getUnitAttr();
+        omp::SingleOp singleOp =
+            rootBuilder.create<omp::SingleOp>(loc, singleOperands);
+        OpBuilder singleBuilder(singleOp);
+        singleBuilder.createBlock(&singleOp.getRegion());
+        moveToSingle(std::get<SingleRegion>(opOrSingle), singleBuilder);
+      } else {
+        auto op = std::get<Operation *>(opOrSingle);
+        if (auto wslw = dyn_cast<omp::WorkshareLoopWrapperOp>(op)) {
+          omp::WsloopOperands wsloopOperands;
+          if (isLast)
+            wsloopOperands.nowait = rootBuilder.getUnitAttr();
+          auto wsloop =
+              rootBuilder.create<mlir::omp::WsloopOp>(loc, wsloopOperands);
+          auto clonedWslw = cast<omp::WorkshareLoopWrapperOp>(
+              rootBuilder.clone(*wslw, rootMapping));
+          wsloop.getRegion().takeBody(clonedWslw.getRegion());
+          clonedWslw->erase();
+        } else {
+          assert(mustParallelizeOp(op));
+          Operation *cloned = rootBuilder.cloneWithoutRegions(*op, rootMapping);
+          for (auto [region, clonedRegion] :
+               llvm::zip(op->getRegions(), cloned->getRegions()))
+            parallelizeRegion(region, clonedRegion, rootMapping, loc);
+        }
+      }
+    }
+
+    rootBuilder.clone(*block.getTerminator(), rootMapping);
   }
-  interface.getEffects(effects);
-  if (effects.empty())
-    return true;
-
-  return false;
 }
 
 /// Lowers workshare to a sequence of single-thread regions and parallel loops
@@ -94,142 +225,31 @@ static bool isSafeToParallelize(Operation *op) {
 ///
 /// Note that we allocate temporary memory for values in omp.single's which need
 /// to be accessed in all threads in the closest omp.parallel
-///
-/// TODO currently we need to be able to access the encompassing omp.parallel so
-/// that we can allocate temporaries accessible by all threads outside of it.
-/// In case we do not find it, we fall back to converting the omp.workshare to
-/// omp.single.
-/// To better handle this we should probably enable yielding values out of an
-/// omp.single which will be supported by the omp runtime.
 void lowerWorkshare(mlir::omp::WorkshareOp wsOp) {
-  assert(wsOp.getRegion().getBlocks().size() == 1);
-
   Location loc = wsOp->getLoc();
-
-  omp::ParallelOp parallelOp = wsOp->getParentOfType<omp::ParallelOp>();
-  if (!parallelOp) {
-    wsOp.emitWarning("cannot handle workshare, converting to single");
-    Operation *terminator = wsOp.getRegion().front().getTerminator();
-    wsOp->getBlock()->getOperations().splice(
-        wsOp->getIterator(), wsOp.getRegion().front().getOperations());
-    terminator->erase();
-    return;
-  }
-
-  OpBuilder allocBuilder(parallelOp);
-  OpBuilder rootBuilder(wsOp);
   IRMapping rootMapping;
 
-  auto mapReloadedValue = [&](Value v, OpBuilder singleBuilder,
-                              IRMapping singleMapping) {
-    if (auto reloaded = rootMapping.lookupOrNull(v))
-      return;
-    Type llvmPtrTy = LLVM::LLVMPointerType::get(allocBuilder.getContext());
-    Type ty = v.getType();
-    Value alloc, reloaded;
-    if (isSupportedByFirAlloca(ty)) {
-      alloc = allocBuilder.create<fir::AllocaOp>(loc, ty);
-      singleBuilder.create<fir::StoreOp>(loc, singleMapping.lookup(v), alloc);
-      reloaded = rootBuilder.create<fir::LoadOp>(loc, ty, alloc);
-    } else {
-      auto one = allocBuilder.create<LLVM::ConstantOp>(
-          loc, allocBuilder.getI32Type(), 1);
-      alloc =
-          allocBuilder.create<LLVM::AllocaOp>(loc, llvmPtrTy, llvmPtrTy, one);
-      Value toStore = singleBuilder
-                          .create<UnrealizedConversionCastOp>(
-                              loc, llvmPtrTy, singleMapping.lookup(v))
-                          .getResult(0);
-      singleBuilder.create<LLVM::StoreOp>(loc, toStore, alloc);
-      reloaded = rootBuilder.create<LLVM::LoadOp>(loc, llvmPtrTy, alloc);
-      reloaded =
-          rootBuilder.create<UnrealizedConversionCastOp>(loc, ty, reloaded)
-              .getResult(0);
-    }
-    rootMapping.map(v, reloaded);
-  };
+  OpBuilder rootBuilder(wsOp);
 
-  auto moveToSingle = [&](SingleRegion sr, OpBuilder singleBuilder) {
-    IRMapping singleMapping = rootMapping;
+  // TODO We need something like an scf;execute here, but that is not registered
+  // so using fir.if for now but it looks like it does not support multiple
+  // blocks so it doesnt work for multi block case...
+  auto ifOp = rootBuilder.create<fir::IfOp>(
+      loc, rootBuilder.create<arith::ConstantIntOp>(loc, 1, 1), false);
+  ifOp.getThenRegion().front().erase();
 
-    for (Operation &op : llvm::make_range(sr.begin, sr.end)) {
-      singleBuilder.clone(op, singleMapping);
-      if (isSafeToParallelize(&op)) {
-        rootBuilder.clone(op, rootMapping);
-      } else {
-        // Prepare reloaded values for results of operations that cannot be
-        // safely parallelized and which are used after the region `sr`
-        for (auto res : op.getResults()) {
-          for (auto &use : res.getUses()) {
-            Operation *user = use.getOwner();
-            while (user->getParentOp() != wsOp)
-              user = user->getParentOp();
-            if (!user->isBeforeInBlock(&*sr.end)) {
-              // We need to reload
-              mapReloadedValue(use.get(), singleBuilder, singleMapping);
-            }
-          }
-        }
-      }
-    }
-    singleBuilder.create<omp::TerminatorOp>(loc);
-  };
+  parallelizeRegion(wsOp.getRegion(), ifOp.getThenRegion(), rootMapping, loc);
 
-  Block *wsBlock = &wsOp.getRegion().front();
-  assert(wsBlock->getTerminator()->getNumOperands() == 0);
-  Operation *terminator = wsBlock->getTerminator();
-
-  SmallVector<std::variant<SingleRegion, omp::WorkshareLoopWrapperOp>> regions;
-
-  auto it = wsBlock->begin();
-  auto getSingleRegion = [&]() {
-    if (&*it == terminator)
-      return false;
-    if (auto pop = dyn_cast<omp::WorkshareLoopWrapperOp>(&*it)) {
-      regions.push_back(pop);
-      it++;
-      return true;
-    }
-    SingleRegion sr;
-    sr.begin = it;
-    while (&*it != terminator && !isa<omp::WorkshareLoopWrapperOp>(&*it))
-      it++;
-    sr.end = it;
-    assert(sr.begin != sr.end);
-    regions.push_back(sr);
-    return true;
-  };
-  while (getSingleRegion())
-    ;
-
-  for (auto [i, loopOrSingle] : llvm::enumerate(regions)) {
-    bool isLast = i + 1 == regions.size();
-    if (std::holds_alternative<SingleRegion>(loopOrSingle)) {
-      omp::SingleOperands singleOperands;
-      if (isLast)
-        singleOperands.nowait = rootBuilder.getUnitAttr();
-      omp::SingleOp singleOp =
-          rootBuilder.create<omp::SingleOp>(loc, singleOperands);
-      OpBuilder singleBuilder(singleOp);
-      singleBuilder.createBlock(&singleOp.getRegion());
-      moveToSingle(std::get<SingleRegion>(loopOrSingle), singleBuilder);
-    } else {
-      omp::WsloopOperands wsloopOperands;
-      if (isLast)
-        wsloopOperands.nowait = rootBuilder.getUnitAttr();
-      auto wsloop =
-          rootBuilder.create<mlir::omp::WsloopOp>(loc, wsloopOperands);
-      auto wslw = std::get<omp::WorkshareLoopWrapperOp>(loopOrSingle);
-      auto clonedWslw = cast<omp::WorkshareLoopWrapperOp>(
-          rootBuilder.clone(*wslw, rootMapping));
-      wsloop.getRegion().takeBody(clonedWslw.getRegion());
-      clonedWslw->erase();
-    }
-  }
+  Operation *terminatorOp = ifOp.getThenRegion().back().getTerminator();
+  assert(isa<omp::TerminatorOp>(terminatorOp));
+  OpBuilder termBuilder(terminatorOp);
 
   if (!wsOp.getNowait())
-    rootBuilder.create<omp::BarrierOp>(loc);
+    termBuilder.create<omp::BarrierOp>(loc);
 
+  termBuilder.create<fir::ResultOp>(loc, ValueRange());
+
+  terminatorOp->erase();
   wsOp->erase();
 
   return;
