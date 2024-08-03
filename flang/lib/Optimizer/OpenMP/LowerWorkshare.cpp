@@ -40,10 +40,23 @@ using namespace mlir;
 
 namespace flangomp {
 bool shouldUseWorkshareLowering(Operation *op) {
-  auto workshare = dyn_cast<omp::WorkshareOp>(op->getParentOp());
-  if (!workshare)
-    return false;
-  return workshare->getParentOfType<omp::ParallelOp>();
+  // TODO this is insufficient, as we could have
+  // omp.parallel {
+  //   omp.workshare {
+  //     omp.parallel {
+  //       hlfir.elemental {}
+  //
+  // Then this hlfir.elemental shall _not_ use the lowering for workshare
+  //
+  // Standard says:
+  //   For a parallel construct, the construct is a unit of work with respect to
+  //   the workshare construct. The statements contained in the parallel
+  //   construct are executed by a new thread team.
+  //
+  // TODO similarly for single, critical, etc. Need to think through the
+  // patterns and implement this function.
+  //
+  return op->getParentOfType<omp::WorkshareOp>();
 }
 } // namespace flangomp
 
