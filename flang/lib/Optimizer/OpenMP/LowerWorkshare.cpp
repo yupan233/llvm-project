@@ -8,25 +8,27 @@
 // Lower omp workshare construct.
 //===----------------------------------------------------------------------===//
 
-#include "flang/Optimizer/Dialect/FIROps.h"
-#include "flang/Optimizer/Dialect/FIRType.h"
-#include "flang/Optimizer/OpenMP/Passes.h"
-#include "mlir/Dialect/OpenMP/OpenMPDialect.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/IR/IRMapping.h"
-#include "mlir/IR/OpDefinition.h"
-#include "mlir/IR/PatternMatch.h"
-#include "mlir/Support/LLVM.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVectorExtras.h"
-#include "llvm/ADT/iterator_range.h"
-
+#include <flang/Optimizer/Builder/FIRBuilder.h>
+#include <flang/Optimizer/Dialect/FIROps.h>
+#include <flang/Optimizer/Dialect/FIRType.h>
+#include <flang/Optimizer/HLFIR/HLFIROps.h>
+#include <flang/Optimizer/OpenMP/Passes.h>
+#include <llvm/ADT/STLExtras.h>
+#include <llvm/ADT/SmallVectorExtras.h>
+#include <llvm/ADT/iterator_range.h>
+#include <llvm/Support/ErrorHandling.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
-#include <mlir/Dialect/OpenMP/OpenMPClauseOperands.h>
+#include <mlir/Dialect/OpenMP/OpenMPDialect.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
+#include <mlir/IR/BuiltinOps.h>
+#include <mlir/IR/IRMapping.h>
+#include <mlir/IR/OpDefinition.h>
+#include <mlir/IR/PatternMatch.h>
 #include <mlir/IR/Visitors.h>
 #include <mlir/Interfaces/SideEffectInterfaces.h>
+#include <mlir/Support/LLVM.h>
+#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
 #include <variant>
 
 namespace flangomp {
@@ -71,6 +73,8 @@ static bool isSupportedByFirAlloca(Type ty) {
 }
 
 static bool mustParallelizeOp(Operation *op) {
+  // TODO as in shouldUseWorkshareLowering we be careful not to pick up
+  // workshare_loop_wrapper in nested omp.parallel ops
   return op
       ->walk(
           [](omp::WorkshareLoopWrapperOp) { return WalkResult::interrupt(); })
@@ -78,7 +82,33 @@ static bool mustParallelizeOp(Operation *op) {
 }
 
 static bool isSafeToParallelize(Operation *op) {
-  return isa<fir::DeclareOp>(op) || isPure(op);
+  return isa<hlfir::DeclareOp>(op) || isa<fir::DeclareOp>(op) ||
+         isMemoryEffectFree(op);
+}
+
+static mlir::func::FuncOp createCopyFunc(mlir::Location loc, mlir::Type varType,
+                                         fir::FirOpBuilder builder) {
+  mlir::ModuleOp module = builder.getModule();
+  mlir::Type eleTy = mlir::cast<fir::ReferenceType>(varType).getEleTy();
+
+  std::string copyFuncName =
+      fir::getTypeAsString(eleTy, builder.getKindMap(), "_workshare_copy");
+
+  if (auto decl = module.lookupSymbol<mlir::func::FuncOp>(copyFuncName))
+    return decl;
+  // create function
+  mlir::OpBuilder::InsertionGuard guard(builder);
+  mlir::OpBuilder modBuilder(module.getBodyRegion());
+  llvm::SmallVector<mlir::Type> argsTy = {varType, varType};
+  auto funcType = mlir::FunctionType::get(builder.getContext(), argsTy, {});
+  mlir::func::FuncOp funcOp =
+      modBuilder.create<mlir::func::FuncOp>(loc, copyFuncName, funcType);
+  funcOp.setVisibility(mlir::SymbolTable::Visibility::Private);
+  builder.createBlock(&funcOp.getRegion(), funcOp.getRegion().end(), argsTy,
+                      {loc, loc});
+  builder.setInsertionPointToStart(&funcOp.getRegion().back());
+  builder.create<mlir::func::ReturnOp>(loc);
+  return funcOp;
 }
 
 static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
@@ -86,19 +116,23 @@ static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
   Operation *parentOp = sourceRegion.getParentOp();
   OpBuilder rootBuilder(sourceRegion.getContext());
 
+  ModuleOp m = sourceRegion.getParentOfType<ModuleOp>();
+  OpBuilder copyFuncBuilder(m.getBodyRegion());
+  fir::FirOpBuilder firCopyFuncBuilder(copyFuncBuilder, m);
+
   // TODO need to copyprivate the alloca's
-  auto mapReloadedValue = [&](Value v, OpBuilder singleBuilder,
-                              IRMapping singleMapping) {
-    OpBuilder allocaBuilder(&targetRegion.front().front());
+  auto mapReloadedValue =
+      [&](Value v, OpBuilder allocaBuilder, OpBuilder singleBuilder,
+          OpBuilder parallelBuilder, IRMapping singleMapping) -> Value {
     if (auto reloaded = rootMapping.lookupOrNull(v))
-      return;
+      return nullptr;
     Type llvmPtrTy = LLVM::LLVMPointerType::get(allocaBuilder.getContext());
     Type ty = v.getType();
     Value alloc, reloaded;
     if (isSupportedByFirAlloca(ty)) {
       alloc = allocaBuilder.create<fir::AllocaOp>(loc, ty);
       singleBuilder.create<fir::StoreOp>(loc, singleMapping.lookup(v), alloc);
-      reloaded = rootBuilder.create<fir::LoadOp>(loc, ty, alloc);
+      reloaded = parallelBuilder.create<fir::LoadOp>(loc, ty, alloc);
     } else {
       auto one = allocaBuilder.create<LLVM::ConstantOp>(
           loc, allocaBuilder.getI32Type(), 1);
@@ -109,21 +143,25 @@ static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
                               loc, llvmPtrTy, singleMapping.lookup(v))
                           .getResult(0);
       singleBuilder.create<LLVM::StoreOp>(loc, toStore, alloc);
-      reloaded = rootBuilder.create<LLVM::LoadOp>(loc, llvmPtrTy, alloc);
+      reloaded = parallelBuilder.create<LLVM::LoadOp>(loc, llvmPtrTy, alloc);
       reloaded =
-          rootBuilder.create<UnrealizedConversionCastOp>(loc, ty, reloaded)
+          parallelBuilder.create<UnrealizedConversionCastOp>(loc, ty, reloaded)
               .getResult(0);
     }
     rootMapping.map(v, reloaded);
+    return alloc;
   };
 
-  auto moveToSingle = [&](SingleRegion sr, OpBuilder singleBuilder) {
+  auto moveToSingle = [&](SingleRegion sr, OpBuilder allocaBuilder,
+                          OpBuilder singleBuilder,
+                          OpBuilder parallelBuilder) -> SmallVector<Value> {
     IRMapping singleMapping = rootMapping;
+    SmallVector<Value> copyPrivate;
 
     for (Operation &op : llvm::make_range(sr.begin, sr.end)) {
       singleBuilder.clone(op, singleMapping);
       if (isSafeToParallelize(&op)) {
-        rootBuilder.clone(op, rootMapping);
+        parallelBuilder.clone(op, rootMapping);
       } else {
         // Prepare reloaded values for results of operations that cannot be
         // safely parallelized and which are used after the region `sr`
@@ -132,16 +170,21 @@ static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
             Operation *user = use.getOwner();
             while (user->getParentOp() != parentOp)
               user = user->getParentOp();
-            if (!(user->isBeforeInBlock(&*sr.end) &&
-                  sr.begin->isBeforeInBlock(user))) {
-              // We need to reload
-              mapReloadedValue(use.get(), singleBuilder, singleMapping);
+            // TODO we need to look at transitively used vals
+            if (true || !(user->isBeforeInBlock(&*sr.end) &&
+                          sr.begin->isBeforeInBlock(user))) {
+              auto alloc =
+                  mapReloadedValue(use.get(), allocaBuilder, singleBuilder,
+                                   parallelBuilder, singleMapping);
+              if (alloc)
+                copyPrivate.push_back(alloc);
             }
           }
         }
       }
     }
     singleBuilder.create<omp::TerminatorOp>(loc);
+    return copyPrivate;
   };
 
   // TODO Need to handle these (clone them) in dominator tree order
@@ -178,14 +221,45 @@ static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
     for (auto [i, opOrSingle] : llvm::enumerate(regions)) {
       bool isLast = i + 1 == regions.size();
       if (std::holds_alternative<SingleRegion>(opOrSingle)) {
+        OpBuilder singleBuilder(sourceRegion.getContext());
+        Block *singleBlock = new Block();
+        singleBuilder.setInsertionPointToStart(singleBlock);
+
+        OpBuilder allocaBuilder(sourceRegion.getContext());
+        Block *allocaBlock = new Block();
+        allocaBuilder.setInsertionPointToStart(allocaBlock);
+
+        OpBuilder parallelBuilder(sourceRegion.getContext());
+        Block *parallelBlock = new Block();
+        parallelBuilder.setInsertionPointToStart(parallelBlock);
+
         omp::SingleOperands singleOperands;
         if (isLast)
           singleOperands.nowait = rootBuilder.getUnitAttr();
+        auto insPtAtSingle = rootBuilder.saveInsertionPoint();
+        singleOperands.copyprivateVars =
+            moveToSingle(std::get<SingleRegion>(opOrSingle), allocaBuilder,
+                         singleBuilder, parallelBuilder);
+        for (auto var : singleOperands.copyprivateVars) {
+          Type ty;
+          if (auto firAlloca = var.getDefiningOp<fir::AllocaOp>()) {
+            ty = firAlloca.getAllocatedType();
+          } else {
+            llvm_unreachable("unexpected");
+          }
+          mlir::func::FuncOp funcOp =
+              createCopyFunc(loc, var.getType(), firCopyFuncBuilder);
+          singleOperands.copyprivateSyms.push_back(SymbolRefAttr::get(funcOp));
+        }
         omp::SingleOp singleOp =
             rootBuilder.create<omp::SingleOp>(loc, singleOperands);
-        OpBuilder singleBuilder(singleOp);
-        singleBuilder.createBlock(&singleOp.getRegion());
-        moveToSingle(std::get<SingleRegion>(opOrSingle), singleBuilder);
+        singleOp.getRegion().push_back(singleBlock);
+        rootBuilder.getInsertionBlock()->getOperations().splice(
+            rootBuilder.getInsertionPoint(), parallelBlock->getOperations());
+        targetRegion.front().getOperations().splice(
+            singleOp->getIterator(), allocaBlock->getOperations());
+        delete allocaBlock;
+        delete parallelBlock;
       } else {
         auto op = std::get<Operation *>(opOrSingle);
         if (auto wslw = dyn_cast<omp::WorkshareLoopWrapperOp>(op)) {

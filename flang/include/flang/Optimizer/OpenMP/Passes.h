@@ -14,8 +14,10 @@
 #define FORTRAN_OPTIMIZER_OPENMP_PASSES_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassRegistry.h"
+
 #include <memory>
 
 namespace flangomp {

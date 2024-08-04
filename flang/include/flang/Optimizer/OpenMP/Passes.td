@@ -11,7 +11,8 @@
 
 include "mlir/Pass/PassBase.td"
 
-def LowerWorkshare : Pass<"lower-workshare"> {
+// Needs to be scheduled on Module as we create functions in it
+def LowerWorkshare : Pass<"lower-workshare", "::mlir::ModuleOp"> {
   let summary = "Lower workshare construct";
 }
 
