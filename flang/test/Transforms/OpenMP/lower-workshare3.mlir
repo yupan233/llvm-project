@@ -3,7 +3,7 @@
 
 // tests if the correct values are stored
 
-func.func @wsfunc(%arg0: !fir.ref<!fir.array<42xi32>>) {
+func.func @wsfunc() {
   omp.parallel {
   // CHECK: fir.alloca
   // CHECK: fir.alloca

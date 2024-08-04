@@ -152,6 +152,14 @@ static bool isTransitivelyUsedOutside(Value v, SingleRegion sr) {
   return false;
 }
 
+/// We clone pure operations in both the parallel and single blocks. this
+/// functions cleans them up if they end up with no uses
+static void cleanupBlock(Block *block) {
+  for (Operation &op : llvm::make_early_inc_range(*block))
+    if (isOpTriviallyDead(&op))
+      op.erase();
+}
+
 static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
                               IRMapping &rootMapping, Location loc) {
   OpBuilder rootBuilder(sourceRegion.getContext());
@@ -258,13 +266,8 @@ static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
         singleOperands.copyprivateVars =
             moveToSingle(std::get<SingleRegion>(opOrSingle), allocaBuilder,
                          singleBuilder, parallelBuilder);
+        cleanupBlock(singleBlock);
         for (auto var : singleOperands.copyprivateVars) {
-          Type ty;
-          if (auto firAlloca = var.getDefiningOp<fir::AllocaOp>()) {
-            ty = firAlloca.getAllocatedType();
-          } else {
-            ty = LLVM::LLVMPointerType::get(allocaBuilder.getContext());
-          }
           mlir::func::FuncOp funcOp =
               createCopyFunc(loc, var.getType(), firCopyFuncBuilder);
           singleOperands.copyprivateSyms.push_back(SymbolRefAttr::get(funcOp));
@@ -302,6 +305,9 @@ static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
 
     rootBuilder.clone(*block.getTerminator(), rootMapping);
   }
+
+  for (Block &targetBlock : targetRegion)
+    cleanupBlock(&targetBlock);
 }
 
 /// Lowers workshare to a sequence of single-thread regions and parallel loops
@@ -372,20 +378,6 @@ public:
 
       lowerWorkshare(wsOp);
     });
-
-    // Do folding
-    for (Operation *isolatedParent : parents) {
-      RewritePatternSet patterns(&getContext());
-      GreedyRewriteConfig config;
-      // prevent the pattern driver form merging blocks
-      config.enableRegionSimplification =
-          mlir::GreedySimplifyRegionLevel::Disabled;
-      if (failed(applyPatternsAndFoldGreedily(isolatedParent,
-                                              std::move(patterns), config))) {
-        emitError(isolatedParent->getLoc(), "error in lower workshare\n");
-        signalPassFailure();
-      }
-    }
   }
 };
 } // namespace
