@@ -18,6 +18,7 @@
 #include <llvm/ADT/iterator_range.h>
 #include <llvm/Support/ErrorHandling.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
+#include <mlir/Dialect/LLVMIR/LLVMTypes.h>
 #include <mlir/Dialect/OpenMP/OpenMPDialect.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/IR/BuiltinOps.h>
@@ -75,6 +76,14 @@ static bool isSupportedByFirAlloca(Type ty) {
 static bool mustParallelizeOp(Operation *op) {
   // TODO as in shouldUseWorkshareLowering we be careful not to pick up
   // workshare_loop_wrapper in nested omp.parallel ops
+  //
+  // e.g.
+  //
+  // omp.parallel {
+  //   omp.workshare {
+  //     omp.parallel {
+  //       omp.workshare {
+  //         omp.workshare_loop_wrapper {}
   return op
       ->walk(
           [](omp::WorkshareLoopWrapperOp) { return WalkResult::interrupt(); })
@@ -89,10 +98,14 @@ static bool isSafeToParallelize(Operation *op) {
 static mlir::func::FuncOp createCopyFunc(mlir::Location loc, mlir::Type varType,
                                          fir::FirOpBuilder builder) {
   mlir::ModuleOp module = builder.getModule();
-  mlir::Type eleTy = mlir::cast<fir::ReferenceType>(varType).getEleTy();
-
-  std::string copyFuncName =
-      fir::getTypeAsString(eleTy, builder.getKindMap(), "_workshare_copy");
+  std::string copyFuncName;
+  if (auto rt = dyn_cast<fir::ReferenceType>(varType)) {
+    mlir::Type eleTy = rt.getEleTy();
+    copyFuncName =
+        fir::getTypeAsString(eleTy, builder.getKindMap(), "_workshare_copy");
+  } else {
+    copyFuncName = "_workshare_copy_llvm_ptr";
+  }
 
   if (auto decl = module.lookupSymbol<mlir::func::FuncOp>(copyFuncName))
     return decl;
@@ -145,9 +158,7 @@ static bool isTransitivelyUsedOutside(Value v, SingleRegion sr) {
 
 static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
                               IRMapping &rootMapping, Location loc) {
-  Operation *parentOp = sourceRegion.getParentOp();
   OpBuilder rootBuilder(sourceRegion.getContext());
-
   ModuleOp m = sourceRegion.getParentOfType<ModuleOp>();
   OpBuilder copyFuncBuilder(m.getBodyRegion());
   fir::FirOpBuilder firCopyFuncBuilder(copyFuncBuilder, m);
@@ -268,7 +279,7 @@ static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
           if (auto firAlloca = var.getDefiningOp<fir::AllocaOp>()) {
             ty = firAlloca.getAllocatedType();
           } else {
-            llvm_unreachable("unexpected");
+            ty = LLVM::LLVMPointerType::get(allocaBuilder.getContext());
           }
           mlir::func::FuncOp funcOp =
               createCopyFunc(loc, var.getType(), firCopyFuncBuilder);
