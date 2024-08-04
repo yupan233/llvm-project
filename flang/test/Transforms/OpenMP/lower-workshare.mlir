@@ -36,7 +36,6 @@ func.func @wsfunc(%arg0: !fir.ref<!fir.array<42xi32>>) {
   return
 }
 
-
 // -----
 
 // checks:
@@ -190,4 +189,3 @@ func.func @wsfunc(%arg0: !fir.ref<!fir.array<42xi32>>) {
 // CHECK:           }
 // CHECK:           return
 // CHECK:         }
-
