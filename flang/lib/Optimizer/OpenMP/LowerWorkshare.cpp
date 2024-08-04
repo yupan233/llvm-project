@@ -163,7 +163,6 @@ static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
   OpBuilder copyFuncBuilder(m.getBodyRegion());
   fir::FirOpBuilder firCopyFuncBuilder(copyFuncBuilder, m);
 
-  // TODO need to copyprivate the alloca's
   auto mapReloadedValue =
       [&](Value v, OpBuilder allocaBuilder, OpBuilder singleBuilder,
           OpBuilder parallelBuilder, IRMapping singleMapping) -> Value {
@@ -202,10 +201,17 @@ static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
     SmallVector<Value> copyPrivate;
 
     for (Operation &op : llvm::make_range(sr.begin, sr.end)) {
-      singleBuilder.clone(op, singleMapping);
       if (isSafeToParallelize(&op)) {
+        singleBuilder.clone(op, singleMapping);
         parallelBuilder.clone(op, rootMapping);
+      } else if (auto alloca = dyn_cast<fir::AllocaOp>(&op)) {
+        auto hoisted =
+            cast<fir::AllocaOp>(allocaBuilder.clone(*alloca, singleMapping));
+        rootMapping.map(&*alloca, &*hoisted);
+        rootMapping.map(alloca.getResult(), hoisted.getResult());
+        copyPrivate.push_back(hoisted);
       } else {
+        singleBuilder.clone(op, singleMapping);
         // Prepare reloaded values for results of operations that cannot be
         // safely parallelized and which are used after the region `sr`
         for (auto res : op.getResults()) {

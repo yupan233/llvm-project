@@ -1,5 +1,7 @@
 // RUN: fir-opt --split-input-file --lower-workshare --allow-unregistered-dialect %s | FileCheck %s
 
+// checks:
+// nowait on final omp.single
 func.func @wsfunc(%arg0: !fir.ref<!fir.array<42xi32>>) {
   omp.parallel {
     omp.workshare {
@@ -37,6 +39,8 @@ func.func @wsfunc(%arg0: !fir.ref<!fir.array<42xi32>>) {
 
 // -----
 
+// checks:
+// fir.alloca hoisted out and copyprivate'd
 func.func @wsfunc(%arg0: !fir.ref<!fir.array<42xi32>>) {
   omp.workshare {
     %c1_i32 = arith.constant 1 : i32
@@ -72,7 +76,6 @@ func.func @wsfunc(%arg0: !fir.ref<!fir.array<42xi32>>) {
   }
   return
 }
-
 
 // CHECK-LABEL:   func.func private @_workshare_copy_heap_42xi32(
 // CHECK-SAME:                                                   %[[VAL_0:.*]]: !fir.ref<!fir.heap<!fir.array<42xi32>>>,
@@ -130,9 +133,9 @@ func.func @wsfunc(%arg0: !fir.ref<!fir.array<42xi32>>) {
 // CHECK:           return
 // CHECK:         }
 
-// CHECK-LABEL:   func.func private @_workshare_copy_llvm_ptr(
-// CHECK-SAME:                                                %[[VAL_0:.*]]: !llvm.ptr,
-// CHECK-SAME:                                                %[[VAL_1:.*]]: !llvm.ptr) {
+// CHECK-LABEL:   func.func private @_workshare_copy_i32(
+// CHECK-SAME:                                           %[[VAL_0:.*]]: !fir.ref<i32>,
+// CHECK-SAME:                                           %[[VAL_1:.*]]: !fir.ref<i32>) {
 // CHECK:           return
 // CHECK:         }
 
@@ -141,46 +144,40 @@ func.func @wsfunc(%arg0: !fir.ref<!fir.array<42xi32>>) {
 // CHECK:           %[[VAL_1:.*]] = arith.constant 1 : index
 // CHECK:           %[[VAL_2:.*]] = arith.constant 42 : index
 // CHECK:           %[[VAL_3:.*]] = arith.constant 1 : i32
-// CHECK:           %[[VAL_4:.*]] = llvm.mlir.constant(1 : i32) : i32
-// CHECK:           %[[VAL_5:.*]] = arith.constant true
-// CHECK:           fir.if %[[VAL_5]] {
-// CHECK:             %[[VAL_6:.*]] = llvm.alloca %[[VAL_4]] x !llvm.ptr : (i32) -> !llvm.ptr
-// CHECK:             %[[VAL_7:.*]] = fir.alloca !fir.heap<!fir.array<42xi32>>
-// CHECK:             omp.single copyprivate(%[[VAL_6]] -> @_workshare_copy_llvm_ptr : !llvm.ptr, %[[VAL_7]] -> @_workshare_copy_heap_42xi32 : !fir.ref<!fir.heap<!fir.array<42xi32>>>) {
-// CHECK:               %[[VAL_8:.*]] = fir.alloca i32
-// CHECK:               %[[VAL_9:.*]] = builtin.unrealized_conversion_cast %[[VAL_8]] : !fir.ref<i32> to !llvm.ptr
-// CHECK:               llvm.store %[[VAL_9]], %[[VAL_6]] : !llvm.ptr, !llvm.ptr
-// CHECK:               fir.store %[[VAL_3]] to %[[VAL_8]] : !fir.ref<i32>
-// CHECK:               %[[VAL_10:.*]] = fir.shape %[[VAL_2]] : (index) -> !fir.shape<1>
-// CHECK:               %[[VAL_11:.*]]:2 = hlfir.declare %[[VAL_0]](%[[VAL_10]]) {uniq_name = "array"} : (!fir.ref<!fir.array<42xi32>>, !fir.shape<1>) -> (!fir.ref<!fir.array<42xi32>>, !fir.ref<!fir.array<42xi32>>)
-// CHECK:               %[[VAL_12:.*]] = fir.allocmem !fir.array<42xi32> {bindc_name = ".tmp.array", uniq_name = ""}
-// CHECK:               fir.store %[[VAL_12]] to %[[VAL_7]] : !fir.ref<!fir.heap<!fir.array<42xi32>>>
-// CHECK:               %[[VAL_13:.*]]:2 = hlfir.declare %[[VAL_12]](%[[VAL_10]]) {uniq_name = ".tmp.array"} : (!fir.heap<!fir.array<42xi32>>, !fir.shape<1>) -> (!fir.heap<!fir.array<42xi32>>, !fir.heap<!fir.array<42xi32>>)
+// CHECK:           %[[VAL_4:.*]] = arith.constant true
+// CHECK:           fir.if %[[VAL_4]] {
+// CHECK:             %[[VAL_5:.*]] = fir.alloca i32
+// CHECK:             %[[VAL_6:.*]] = fir.alloca !fir.heap<!fir.array<42xi32>>
+// CHECK:             omp.single copyprivate(%[[VAL_5]] -> @_workshare_copy_i32 : !fir.ref<i32>, %[[VAL_6]] -> @_workshare_copy_heap_42xi32 : !fir.ref<!fir.heap<!fir.array<42xi32>>>) {
+// CHECK:               fir.store %[[VAL_3]] to %[[VAL_5]] : !fir.ref<i32>
+// CHECK:               %[[VAL_7:.*]] = fir.shape %[[VAL_2]] : (index) -> !fir.shape<1>
+// CHECK:               %[[VAL_8:.*]]:2 = hlfir.declare %[[VAL_0]](%[[VAL_7]]) {uniq_name = "array"} : (!fir.ref<!fir.array<42xi32>>, !fir.shape<1>) -> (!fir.ref<!fir.array<42xi32>>, !fir.ref<!fir.array<42xi32>>)
+// CHECK:               %[[VAL_9:.*]] = fir.allocmem !fir.array<42xi32> {bindc_name = ".tmp.array", uniq_name = ""}
+// CHECK:               fir.store %[[VAL_9]] to %[[VAL_6]] : !fir.ref<!fir.heap<!fir.array<42xi32>>>
+// CHECK:               %[[VAL_10:.*]]:2 = hlfir.declare %[[VAL_9]](%[[VAL_7]]) {uniq_name = ".tmp.array"} : (!fir.heap<!fir.array<42xi32>>, !fir.shape<1>) -> (!fir.heap<!fir.array<42xi32>>, !fir.heap<!fir.array<42xi32>>)
 // CHECK:               omp.terminator
 // CHECK:             }
-// CHECK:             %[[VAL_14:.*]] = llvm.load %[[VAL_6]] : !llvm.ptr -> !llvm.ptr
-// CHECK:             %[[VAL_15:.*]] = builtin.unrealized_conversion_cast %[[VAL_14]] : !llvm.ptr to !fir.ref<i32>
-// CHECK:             %[[VAL_16:.*]] = fir.shape %[[VAL_2]] : (index) -> !fir.shape<1>
-// CHECK:             %[[VAL_17:.*]]:2 = hlfir.declare %[[VAL_0]](%[[VAL_16]]) {uniq_name = "array"} : (!fir.ref<!fir.array<42xi32>>, !fir.shape<1>) -> (!fir.ref<!fir.array<42xi32>>, !fir.ref<!fir.array<42xi32>>)
-// CHECK:             %[[VAL_18:.*]] = fir.load %[[VAL_7]] : !fir.ref<!fir.heap<!fir.array<42xi32>>>
-// CHECK:             %[[VAL_19:.*]]:2 = hlfir.declare %[[VAL_18]](%[[VAL_16]]) {uniq_name = ".tmp.array"} : (!fir.heap<!fir.array<42xi32>>, !fir.shape<1>) -> (!fir.heap<!fir.array<42xi32>>, !fir.heap<!fir.array<42xi32>>)
+// CHECK:             %[[VAL_11:.*]] = fir.shape %[[VAL_2]] : (index) -> !fir.shape<1>
+// CHECK:             %[[VAL_12:.*]]:2 = hlfir.declare %[[VAL_0]](%[[VAL_11]]) {uniq_name = "array"} : (!fir.ref<!fir.array<42xi32>>, !fir.shape<1>) -> (!fir.ref<!fir.array<42xi32>>, !fir.ref<!fir.array<42xi32>>)
+// CHECK:             %[[VAL_13:.*]] = fir.load %[[VAL_6]] : !fir.ref<!fir.heap<!fir.array<42xi32>>>
+// CHECK:             %[[VAL_14:.*]]:2 = hlfir.declare %[[VAL_13]](%[[VAL_11]]) {uniq_name = ".tmp.array"} : (!fir.heap<!fir.array<42xi32>>, !fir.shape<1>) -> (!fir.heap<!fir.array<42xi32>>, !fir.heap<!fir.array<42xi32>>)
 // CHECK:             omp.wsloop {
-// CHECK:               omp.loop_nest (%[[VAL_20:.*]]) : index = (%[[VAL_1]]) to (%[[VAL_2]]) inclusive step (%[[VAL_1]]) {
-// CHECK:                 %[[VAL_21:.*]] = hlfir.designate %[[VAL_17]]#0 (%[[VAL_20]])  : (!fir.ref<!fir.array<42xi32>>, index) -> !fir.ref<i32>
-// CHECK:                 %[[VAL_22:.*]] = fir.load %[[VAL_21]] : !fir.ref<i32>
-// CHECK:                 %[[VAL_23:.*]] = fir.load %[[VAL_15]] : !fir.ref<i32>
-// CHECK:                 %[[VAL_24:.*]] = arith.subi %[[VAL_22]], %[[VAL_23]] : i32
-// CHECK:                 %[[VAL_25:.*]] = arith.subi %[[VAL_24]], %[[VAL_3]] : i32
-// CHECK:                 %[[VAL_26:.*]] = hlfir.designate %[[VAL_19]]#0 (%[[VAL_20]])  : (!fir.heap<!fir.array<42xi32>>, index) -> !fir.ref<i32>
-// CHECK:                 hlfir.assign %[[VAL_25]] to %[[VAL_26]] temporary_lhs : i32, !fir.ref<i32>
+// CHECK:               omp.loop_nest (%[[VAL_15:.*]]) : index = (%[[VAL_1]]) to (%[[VAL_2]]) inclusive step (%[[VAL_1]]) {
+// CHECK:                 %[[VAL_16:.*]] = hlfir.designate %[[VAL_12]]#0 (%[[VAL_15]])  : (!fir.ref<!fir.array<42xi32>>, index) -> !fir.ref<i32>
+// CHECK:                 %[[VAL_17:.*]] = fir.load %[[VAL_16]] : !fir.ref<i32>
+// CHECK:                 %[[VAL_18:.*]] = fir.load %[[VAL_5]] : !fir.ref<i32>
+// CHECK:                 %[[VAL_19:.*]] = arith.subi %[[VAL_17]], %[[VAL_18]] : i32
+// CHECK:                 %[[VAL_20:.*]] = arith.subi %[[VAL_19]], %[[VAL_3]] : i32
+// CHECK:                 %[[VAL_21:.*]] = hlfir.designate %[[VAL_14]]#0 (%[[VAL_15]])  : (!fir.heap<!fir.array<42xi32>>, index) -> !fir.ref<i32>
+// CHECK:                 hlfir.assign %[[VAL_20]] to %[[VAL_21]] temporary_lhs : i32, !fir.ref<i32>
 // CHECK:                 omp.yield
 // CHECK:               }
 // CHECK:               omp.terminator
 // CHECK:             }
 // CHECK:             omp.single nowait {
-// CHECK:               "test.test1"(%[[VAL_15]]) : (!fir.ref<i32>) -> ()
-// CHECK:               hlfir.assign %[[VAL_19]]#0 to %[[VAL_17]]#0 : !fir.heap<!fir.array<42xi32>>, !fir.ref<!fir.array<42xi32>>
-// CHECK:               fir.freemem %[[VAL_19]]#0 : !fir.heap<!fir.array<42xi32>>
+// CHECK:               "test.test1"(%[[VAL_5]]) : (!fir.ref<i32>) -> ()
+// CHECK:               hlfir.assign %[[VAL_14]]#0 to %[[VAL_12]]#0 : !fir.heap<!fir.array<42xi32>>, !fir.ref<!fir.array<42xi32>>
+// CHECK:               fir.freemem %[[VAL_14]]#0 : !fir.heap<!fir.array<42xi32>>
 // CHECK:               omp.terminator
 // CHECK:             }
 // CHECK:             omp.barrier
