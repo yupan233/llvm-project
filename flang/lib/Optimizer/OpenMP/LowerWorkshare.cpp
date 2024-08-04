@@ -69,10 +69,6 @@ struct SingleRegion {
   Block::iterator begin, end;
 };
 
-static bool isSupportedByFirAlloca(Type ty) {
-  return !isa<fir::ReferenceType>(ty);
-}
-
 static bool mustParallelizeOp(Operation *op) {
   // TODO as in shouldUseWorkshareLowering we be careful not to pick up
   // workshare_loop_wrapper in nested omp.parallel ops
@@ -98,14 +94,10 @@ static bool isSafeToParallelize(Operation *op) {
 static mlir::func::FuncOp createCopyFunc(mlir::Location loc, mlir::Type varType,
                                          fir::FirOpBuilder builder) {
   mlir::ModuleOp module = builder.getModule();
-  std::string copyFuncName;
-  if (auto rt = dyn_cast<fir::ReferenceType>(varType)) {
-    mlir::Type eleTy = rt.getEleTy();
-    copyFuncName =
-        fir::getTypeAsString(eleTy, builder.getKindMap(), "_workshare_copy");
-  } else {
-    copyFuncName = "_workshare_copy_llvm_ptr";
-  }
+  auto rt = cast<fir::ReferenceType>(varType);
+  mlir::Type eleTy = rt.getEleTy();
+  std::string copyFuncName =
+      fir::getTypeAsString(eleTy, builder.getKindMap(), "_workshare_copy");
 
   if (auto decl = module.lookupSymbol<mlir::func::FuncOp>(copyFuncName))
     return decl;
@@ -120,6 +112,10 @@ static mlir::func::FuncOp createCopyFunc(mlir::Location loc, mlir::Type varType,
   builder.createBlock(&funcOp.getRegion(), funcOp.getRegion().end(), argsTy,
                       {loc, loc});
   builder.setInsertionPointToStart(&funcOp.getRegion().back());
+
+  Value loaded = builder.create<fir::LoadOp>(loc, funcOp.getArgument(0));
+  builder.create<fir::StoreOp>(loc, loaded, funcOp.getArgument(1));
+
   builder.create<mlir::func::ReturnOp>(loc);
   return funcOp;
 }
@@ -168,28 +164,10 @@ static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
           OpBuilder parallelBuilder, IRMapping singleMapping) -> Value {
     if (auto reloaded = rootMapping.lookupOrNull(v))
       return nullptr;
-    Type llvmPtrTy = LLVM::LLVMPointerType::get(allocaBuilder.getContext());
     Type ty = v.getType();
-    Value alloc, reloaded;
-    if (isSupportedByFirAlloca(ty)) {
-      alloc = allocaBuilder.create<fir::AllocaOp>(loc, ty);
-      singleBuilder.create<fir::StoreOp>(loc, singleMapping.lookup(v), alloc);
-      reloaded = parallelBuilder.create<fir::LoadOp>(loc, ty, alloc);
-    } else {
-      auto one = allocaBuilder.create<LLVM::ConstantOp>(
-          loc, allocaBuilder.getI32Type(), 1);
-      alloc =
-          allocaBuilder.create<LLVM::AllocaOp>(loc, llvmPtrTy, llvmPtrTy, one);
-      Value toStore = singleBuilder
-                          .create<UnrealizedConversionCastOp>(
-                              loc, llvmPtrTy, singleMapping.lookup(v))
-                          .getResult(0);
-      singleBuilder.create<LLVM::StoreOp>(loc, toStore, alloc);
-      reloaded = parallelBuilder.create<LLVM::LoadOp>(loc, llvmPtrTy, alloc);
-      reloaded =
-          parallelBuilder.create<UnrealizedConversionCastOp>(loc, ty, reloaded)
-              .getResult(0);
-    }
+    Value alloc = allocaBuilder.create<fir::AllocaOp>(loc, ty);
+    singleBuilder.create<fir::StoreOp>(loc, singleMapping.lookup(v), alloc);
+    Value reloaded = parallelBuilder.create<fir::LoadOp>(loc, ty, alloc);
     rootMapping.map(v, reloaded);
     return alloc;
   };
