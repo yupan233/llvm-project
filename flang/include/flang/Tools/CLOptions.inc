@@ -17,6 +17,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "flang/Optimizer/CodeGen/CodeGen.h"
 #include "flang/Optimizer/HLFIR/Passes.h"
+#include "flang/Optimizer/OpenMP/Passes.h"
 #include "flang/Optimizer/Transforms/Passes.h"
 #include "llvm/Passes/OptimizationLevel.h"
 #include "llvm/Support/CommandLine.h"
@@ -344,6 +345,7 @@ inline void createHLFIRToFIRPassPipeline(
   pm.addPass(hlfir::createLowerHLFIRIntrinsics());
   pm.addPass(hlfir::createBufferizeHLFIR());
   pm.addPass(hlfir::createConvertHLFIRtoFIR());
+  pm.addPass(flangomp::createLowerWorkshare());
 }
 
 /// Create a pass pipeline for handling certain OpenMP transformations needed
