@@ -13,12 +13,14 @@
 #include <flang/Optimizer/Dialect/FIRType.h>
 #include <flang/Optimizer/HLFIR/HLFIROps.h>
 #include <flang/Optimizer/OpenMP/Passes.h>
+#include <llvm/ADT/BreadthFirstIterator.h>
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVectorExtras.h>
 #include <llvm/ADT/iterator_range.h>
 #include <llvm/Support/ErrorHandling.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/LLVMIR/LLVMTypes.h>
+#include <mlir/Dialect/OpenMP/OpenMPClauseOperands.h>
 #include <mlir/Dialect/OpenMP/OpenMPDialect.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/IR/BuiltinOps.h>
@@ -161,7 +163,8 @@ static void cleanupBlock(Block *block) {
 }
 
 static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
-                              IRMapping &rootMapping, Location loc) {
+                              IRMapping &rootMapping, Location loc,
+                              mlir::DominanceInfo &di) {
   OpBuilder rootBuilder(sourceRegion.getContext());
   ModuleOp m = sourceRegion.getParentOfType<ModuleOp>();
   OpBuilder copyFuncBuilder(m.getBodyRegion());
@@ -214,14 +217,19 @@ static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
     return copyPrivate;
   };
 
-  // TODO Need to handle these (clone them) in dominator tree order
   for (Block &block : sourceRegion) {
-    rootBuilder.createBlock(
+    Block *targetBlock = rootBuilder.createBlock(
         &targetRegion, {}, block.getArgumentTypes(),
         llvm::map_to_vector(block.getArguments(),
                             [](BlockArgument arg) { return arg.getLoc(); }));
-    Operation *terminator = block.getTerminator();
+    rootMapping.map(&block, targetBlock);
+    rootMapping.map(block.getArguments(), targetBlock->getArguments());
+  }
 
+  auto handleOneBlock = [&](Block &block) {
+    Block &targetBlock = *rootMapping.lookup(&block);
+    rootBuilder.setInsertionPointToStart(&targetBlock);
+    Operation *terminator = block.getTerminator();
     SmallVector<std::variant<SingleRegion, Operation *>> regions;
 
     auto it = block.begin();
@@ -298,12 +306,21 @@ static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
           Operation *cloned = rootBuilder.cloneWithoutRegions(*op, rootMapping);
           for (auto [region, clonedRegion] :
                llvm::zip(op->getRegions(), cloned->getRegions()))
-            parallelizeRegion(region, clonedRegion, rootMapping, loc);
+            parallelizeRegion(region, clonedRegion, rootMapping, loc, di);
         }
       }
     }
 
     rootBuilder.clone(*block.getTerminator(), rootMapping);
+  };
+
+  if (sourceRegion.hasOneBlock()) {
+    handleOneBlock(sourceRegion.front());
+  } else {
+    auto &domTree = di.getDomTree(&sourceRegion);
+    for (auto node : llvm::breadth_first(domTree.getRootNode())) {
+      handleOneBlock(*node->getBlock());
+    }
   }
 
   for (Block &targetBlock : targetRegion)
@@ -336,47 +353,46 @@ static void parallelizeRegion(Region &sourceRegion, Region &targetRegion,
 ///
 /// Note that we allocate temporary memory for values in omp.single's which need
 /// to be accessed in all threads in the closest omp.parallel
-void lowerWorkshare(mlir::omp::WorkshareOp wsOp) {
+LogicalResult lowerWorkshare(mlir::omp::WorkshareOp wsOp, DominanceInfo &di) {
   Location loc = wsOp->getLoc();
   IRMapping rootMapping;
 
   OpBuilder rootBuilder(wsOp);
 
-  // TODO We need something like an scf;execute here, but that is not registered
-  // so using fir.if for now but it looks like it does not support multiple
-  // blocks so it doesnt work for multi block case...
-  auto ifOp = rootBuilder.create<fir::IfOp>(
-      loc, rootBuilder.create<arith::ConstantIntOp>(loc, 1, 1), false);
-  ifOp.getThenRegion().front().erase();
-
-  parallelizeRegion(wsOp.getRegion(), ifOp.getThenRegion(), rootMapping, loc);
-
-  Operation *terminatorOp = ifOp.getThenRegion().back().getTerminator();
-  assert(isa<omp::TerminatorOp>(terminatorOp));
-  OpBuilder termBuilder(terminatorOp);
-
+  // TODO We need something like an scf.execute here, but that is not registered
+  // so using omp.workshare as a placeholder. We need this op as our
+  // parallelizeRegion works on regions and not blocks.
+  omp::WorkshareOp newOp =
+      rootBuilder.create<omp::WorkshareOp>(loc, omp::WorkshareOperands());
   if (!wsOp.getNowait())
-    termBuilder.create<omp::BarrierOp>(loc);
+    rootBuilder.create<omp::BarrierOp>(loc);
 
-  termBuilder.create<fir::ResultOp>(loc, ValueRange());
+  parallelizeRegion(wsOp.getRegion(), newOp.getRegion(), rootMapping, loc, di);
 
-  terminatorOp->erase();
+  if (wsOp.getRegion().getBlocks().size() != 1)
+    return failure();
+
+  // Inline the contents of the placeholder workshare op into its parent block.
+  Block *theBlock = &newOp.getRegion().front();
+  Operation *term = theBlock->getTerminator();
+  Block *parentBlock = wsOp->getBlock();
+  parentBlock->getOperations().splice(newOp->getIterator(),
+                                      theBlock->getOperations());
+  assert(term->getNumOperands() == 0);
+  term->erase();
+  newOp->erase();
   wsOp->erase();
-
-  return;
+  return success();
 }
 
 class LowerWorksharePass
     : public flangomp::impl::LowerWorkshareBase<LowerWorksharePass> {
 public:
   void runOnOperation() override {
-    SmallPtrSet<Operation *, 8> parents;
+    mlir::DominanceInfo &di = getAnalysis<mlir::DominanceInfo>();
     getOperation()->walk([&](mlir::omp::WorkshareOp wsOp) {
-      Operation *isolatedParent =
-          wsOp->getParentWithTrait<OpTrait::IsIsolatedFromAbove>();
-      parents.insert(isolatedParent);
-
-      lowerWorkshare(wsOp);
+      if (failed(lowerWorkshare(wsOp, di)))
+        signalPassFailure();
     });
   }
 };

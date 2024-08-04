@@ -29,25 +29,22 @@ func.func @wsfunc() {
 // CHECK-LABEL:   func.func @wsfunc() {
 // CHECK:           %[[VAL_0:.*]] = fir.alloca i32
 // CHECK:           omp.parallel {
-// CHECK:             %[[VAL_1:.*]] = arith.constant true
-// CHECK:             fir.if %[[VAL_1]] {
-// CHECK:               omp.single {
-// CHECK:                 %[[VAL_2:.*]] = "test.test1"() : () -> i32
-// CHECK:                 %[[VAL_3:.*]] = arith.constant 2 : index
-// CHECK:                 "test.test3"(%[[VAL_3]]) : (index) -> ()
-// CHECK:                 omp.terminator
-// CHECK:               }
-// CHECK:               %[[VAL_4:.*]] = arith.constant 1 : index
-// CHECK:               %[[VAL_5:.*]] = arith.constant 42 : index
-// CHECK:               omp.wsloop nowait {
-// CHECK:                 omp.loop_nest (%[[VAL_6:.*]]) : index = (%[[VAL_4]]) to (%[[VAL_5]]) inclusive step (%[[VAL_4]]) {
-// CHECK:                   "test.test2"() : () -> ()
-// CHECK:                   omp.yield
-// CHECK:                 }
-// CHECK:                 omp.terminator
-// CHECK:               }
-// CHECK:               omp.barrier
+// CHECK:             omp.single {
+// CHECK:               %[[VAL_1:.*]] = "test.test1"() : () -> i32
+// CHECK:               %[[VAL_2:.*]] = arith.constant 2 : index
+// CHECK:               "test.test3"(%[[VAL_2]]) : (index) -> ()
+// CHECK:               omp.terminator
 // CHECK:             }
+// CHECK:             %[[VAL_3:.*]] = arith.constant 1 : index
+// CHECK:             %[[VAL_4:.*]] = arith.constant 42 : index
+// CHECK:             omp.wsloop nowait {
+// CHECK:               omp.loop_nest (%[[VAL_5:.*]]) : index = (%[[VAL_3]]) to (%[[VAL_4]]) inclusive step (%[[VAL_3]]) {
+// CHECK:                 "test.test2"() : () -> ()
+// CHECK:                 omp.yield
+// CHECK:               }
+// CHECK:               omp.terminator
+// CHECK:             }
+// CHECK:             omp.barrier
 // CHECK:             omp.terminator
 // CHECK:           }
 // CHECK:           return
