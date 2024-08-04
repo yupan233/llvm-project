@@ -17,7 +17,6 @@
 
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
-#include <mlir/Dialect/OpenMP/OpenMPDialect.h>
 
 #include "mlir/Dialect/OpenMP/OpenMPOpsEnums.h.inc"
 
