@@ -301,6 +301,11 @@ static cl::opt<bool> EnableSIModeRegisterPass(
   cl::init(true),
   cl::Hidden);
 
+static cl::opt<bool> EnableAMDGPUAttributorInFullLTO(
+    "amdgpu-attributor-enable-full-lto",
+    cl::desc("Enable AMDGPUAttributorPass in full LTO post link stage"),
+    cl::init(false), cl::Hidden);
+
 // Enable GFX11.5+ s_singleuse_vdst insertion
 static cl::opt<bool>
     EnableInsertSingleUseVDST("amdgpu-enable-single-use-vdst",
@@ -749,6 +754,8 @@ void AMDGPUTargetMachine::registerPassBuilderCallbacks(PassBuilder &PB) {
         // module is partitioned for codegen.
         if (EnableLowerModuleLDS)
           PM.addPass(AMDGPULowerModuleLDSPass(*this));
+        if (EnableAMDGPUAttributorInFullLTO)
+          PM.addPass(AMDGPUAttributorPass(*this));
       });
 
   PB.registerRegClassFilterParsingCallback(
