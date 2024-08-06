@@ -313,10 +313,10 @@ def WorkshareLoopWrapperOp : OpenMP_Op<"workshare_loop_wrapper", traits = [
     RecursiveMemoryEffects, SingleBlock
   ], singleRegion = true> {
   let summary = "contains loop nests to be parallelized by workshare";
-
   let builders = [
     OpBuilder<(ins), [{ build($_builder, $_state, {}); }]>
   ];
+  let assemblyFormat = "$region attr-dict";
 }
 
 //===----------------------------------------------------------------------===//
