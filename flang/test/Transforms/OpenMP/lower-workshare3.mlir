@@ -52,7 +52,7 @@ func.func @wsfunc() {
 
       %c42 = arith.constant 42 : index
       %c1 = arith.constant 1 : index
-      "omp.workshare_loop_wrapper"() ({
+      omp.workshare_loop_wrapper {
         omp.loop_nest (%arg1) : index = (%c1) to (%c42) inclusive step (%c1) {
           "test.test10"(%t1) : (i32) -> ()
           "test.test10"(%t5_pure_use) : (i32) -> ()
@@ -60,7 +60,7 @@ func.func @wsfunc() {
           omp.yield
         }
         omp.terminator
-      }) : () -> ()
+      }
 
       "test.test10"(%t2) : (i32) -> ()
       fir.if %true {

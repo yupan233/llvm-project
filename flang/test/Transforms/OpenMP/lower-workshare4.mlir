@@ -12,13 +12,13 @@ func.func @wsfunc() {
       %c2 = arith.constant 2 : index
       "test.test3"(%c2) : (index) -> ()
 
-      "omp.workshare_loop_wrapper"() ({
+      omp.workshare_loop_wrapper {
         omp.loop_nest (%arg1) : index = (%c1) to (%c42) inclusive step (%c1) {
           "test.test2"() : () -> ()
           omp.yield
         }
         omp.terminator
-      }) : () -> ()
+      }
       omp.terminator
     }
     omp.terminator
